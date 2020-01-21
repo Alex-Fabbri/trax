@@ -33,7 +33,11 @@ import tensorflow as tf
 import tensorflow_datasets as tfds
 from trax import math
 from trax.math import numpy as np
+# import sentencepiece as sentencepiece_processor
+import tensorflow_text as tf_text
 
+
+DEFAULT_SPM_PATH = "gs://t5-data/vocabs/cc_all.32000/sentencepiece.model"
 
 class Inputs(object):
   """Inputs bundle..
@@ -149,6 +153,7 @@ def download_and_prepare(dataset_name, data_dir):
     else:
       # Download and prepare TFDS dataset.
       tfds_builder = tfds.builder(dataset_name)
+      # AF: dl_dir=/home/alex_fabbri4_gmail_com/tensorflow_datasets/download
       tfds_builder.download_and_prepare(download_dir=dl_dir)
   else:
     data_dir = os.path.expanduser(data_dir)
@@ -329,15 +334,26 @@ def train_and_eval_dataset(dataset_name, data_dir, eval_holdout_size=0,
     eval_split = tfds.Split.VALIDATION
     if tfds.Split.VALIDATION not in splits:
       eval_split = tfds.Split.TEST
+  # def map_fn(x):
+  #   return {
+  #       'inputs': x[article_key],
+  #       'targets': x[summary_key],
+  #   }
   train = tfds.load(
       name=dataset_name, split=train_split, data_dir=data_dir,
       shuffle_files=train_shuffle_files)
   valid = tfds.load(
       name=dataset_name, split=eval_split, data_dir=data_dir,
       shuffle_files=eval_shuffle_files)
+  article_key = "article"
+  summary_key = "highlights"
+  # train = train.map(map_fn, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+  # valid = valid.map(map_fn, num_parallel_calls=tf.data.experimental.AUTOTUNE)
   keys = None
   if info.supervised_keys:
     keys = ([info.supervised_keys[0]], [info.supervised_keys[1]])
+  # TODO(alex-fabbri): if we want to set keys, need to take care of feature.info as well
+  # keys = ['inputs', 'targets']
   return train, valid, info.features, keys
 
 
@@ -468,13 +484,17 @@ def batch_fn(dataset, training, shapes, target_names, n_devices,
       """The length function used by bucket_by_sequence_length to bucket."""
       other_length = 0
       if buckets_include_inputs_in_length:
-        other_length = tf.shape(example_inputs['inputs'])[0]
+        # other_length = tf.shape(example_inputs['inputs'])[0]
+        other_length = tf.shape(example_inputs['article'])[0]
       return tf.maximum(tf.shape(target)[0], other_length)
     boundaries, batch_sizes = buckets
     dataset = dataset.apply(tf.data.experimental.bucket_by_sequence_length(
         example_length, boundaries, batch_sizes,
         pad_to_bucket_boundary=True))
   else:
+    # print(shapes)
+    # TODO(alex-fabbri): here is the error -- with shapes
+    # exit()
     dataset = dataset.padded_batch(cur_batch_size, shapes)
   if training:
     return dataset.shuffle(batch_shuffle_size)
@@ -614,11 +634,15 @@ def wmt_preprocess(dataset, training, shapes,
   """Preprocessing for LM1B: filter out targets exceeding maximum length."""
 
   def train_right_length(example, target):
-    l = tf.maximum(tf.shape(example['inputs'])[0], tf.shape(target)[0])
+    # l = tf.maximum(tf.shape(example['inputs'])[0], tf.shape(target)[0])
+    # TODO(alex-fabbri): change
+    l = tf.maximum(tf.shape(example['article'])[0], tf.shape(target)[0])
     return tf.less(l, max_length + 1)
 
   def eval_right_length(example, target):
-    l = tf.maximum(tf.shape(example['inputs'])[0], tf.shape(target)[0])
+    # l = tf.maximum(tf.shape(example['inputs'])[0], tf.shape(target)[0])
+    # TODO(alex-fabbri): change
+    l = tf.maximum(tf.shape(example['highlights'])[0], tf.shape(target)[0])
     return tf.less(l, max_eval_length + 1)
 
   if max_length > 0 and training:
@@ -628,6 +652,8 @@ def wmt_preprocess(dataset, training, shapes,
     dataset = dataset.filter(eval_right_length)
 
   return dataset, shapes
+
+# TODO(alex-fabbri): first solution to get something running is just to create a different preprocessing function for each 
 
 
 @gin.configurable(blacklist=['dataset', 'training', 'shapes'])
@@ -722,23 +748,80 @@ def shuffle_and_batch_data(dataset,
     dataset = dataset.skip(random.randint(0, _MAX_SKIP_EXAMPLES))
   shapes = {k: features_info[k].shape for k in features_info}
   shapes = (shapes, shapes[target_names[0]])
+  # TODO -- need to change the batching function
   dataset, shapes = preprocess_fun(dataset, training, shapes)
+  shapes = ({'article': [None], 'highlights': [None]}, [None])
   dataset = dataset.shuffle(shuffle_buffer_size)
   dataset = batch_fn(dataset, training, shapes, target_names, n_devices)
   return dataset.prefetch(2)
 
+def encode_string_features(
+    dataset, vocabulary, keys, copy_plaintext=False):
+  """Encode specified string features.
+
+  Passes through non-string features unchanged. Optionally passes through copy
+  of original string features with "_plaintext" suffix added to the key.
+
+  Args:
+    dataset: a tf.data.Dataset
+    vocabulary: a vocabulary.Vocabulary
+    keys: list of strings, keys of features to encode.
+    copy_plaintext: bool, whether to pass through copies of plaintext strings
+      with a "_plaintext" suffix added to the key.
+  Returns:
+    a tf.data.Dataset
+  """
+  keys = set(keys)
+  def my_fn(features):
+    """Encode all specified feature that are strings and return a dictionary.
+
+    Args:
+      features: a dictionary
+    Returns:
+      a dictionary
+    """
+    ret = {}
+    for k, v in features.items():
+      if v.dtype == tf.string and k in keys:
+        if copy_plaintext:
+          ret["%s_plaintext" % k] = v
+        #  TODO(alex-fabbri): modify
+        # v = tf.cast(vocabulary.encode(v), tf.int64)
+        # v = tf.cast(vocabulary.EncodeAsIds(v), tf.int64)
+        v = tf.cast(vocabulary.tokenize(v), tf.int64)
+      ret[k] = v
+    return ret
+  return dataset.map(my_fn, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+  
 
 def _train_and_eval_batches(dataset, data_dir, input_name, n_devices):
   """Return train and eval batches with input name and shape."""
   (train_data, eval_data, features_info, keys) = train_and_eval_dataset(
       dataset, data_dir)
   input_names, target_names = keys[0], keys[1]
+  # import pdb;pdb.set_trace()
+  # tokenizer = sentencepiece_processor.SentencePieceProcessor()
+  # tokenizer.LoadFromSerializedProto(sp_model)
+  sp_model = tf.gfile.GFile(DEFAULT_SPM_PATH, "rb").read()
+  keys = ["article", "highlights"]
+  tokenizer = tf_text.SentencepieceTokenizer(model=sp_model)
+  train_data = encode_string_features(
+          train_data, tokenizer, keys=keys,
+          copy_plaintext=True)
+  eval_data = encode_string_features(
+          eval_data, tokenizer, keys=keys,
+          copy_plaintext=True)
+  if not isinstance(target_names, list):
+    target_names = [target_names]
+  # train_data = train_data.take(1000)
+  # eval_data = eval_data.take(1000)
   train_batches = shuffle_and_batch_data(
       train_data, target_names, features_info, training=True,
       n_devices=n_devices)
   train_eval_batches = shuffle_and_batch_data(  # Data for eval-on-train
       train_data, target_names, features_info, training=False,
       n_devices=n_devices)
+  # import pdb;pdb.set_trace()
   eval_batches = shuffle_and_batch_data(
       eval_data, target_names, features_info, training=False,
       n_devices=n_devices)

@@ -29,6 +29,7 @@ from absl import logging
 import gin
 import jax
 import tensorflow.compat.v2 as tf
+tf.compat.v1.enable_eager_execution()
 from trax import math
 from trax.supervised import trainer_lib
 from trax.tf_numpy import numpy as tf_np

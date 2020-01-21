@@ -1,0 +1,1 @@
+python3 -m trax.trainer --config_file=$PWD/trax/configs/transformer_wmt_ende_8gb_adafactor.gin --enable_eager_execution=False --use_tpu=True --jax_xla_backend=tpu_driver --jax_backend_target=grpc://10.228.231.242:8470 --tf_xla=true
