@@ -160,7 +160,8 @@ def download_and_prepare(dataset_name, data_dir):
 
 
 @gin.configurable()
-def inputs(dataset_name, data_dir=None, input_name=None, custom_preprocess=False, src_truncate=-1, tgt_truncate=-1):
+def inputs(dataset_name, data_dir=None, input_name=None, custom_preprocess=False, 
+           src_truncate=-1, tgt_truncate=-1, train_dataset_size=-1, valid_dataset_size=-1):
   """Make Inputs for built-in datasets.
 
   Args:
@@ -179,8 +180,9 @@ def inputs(dataset_name, data_dir=None, input_name=None, custom_preprocess=False
     """Create the stream, cache TF streams if needed."""
     if n_devices not in cache:
       cache[n_devices] = _train_and_eval_batches(
-          dataset_name, data_dir, input_name, n_devices, custom_preprocess, 
-          src_truncate, tgt_truncate)
+          dataset_name, data_dir, input_name, n_devices, 
+          custom_preprocess, src_truncate, tgt_truncate, 
+          train_dataset_size, valid_dataset_size)
 
     (train_batches, train_eval_batches, eval_batches,
      input_name_c) = cache[n_devices]
@@ -801,7 +803,9 @@ def encode_string_features(
   return dataset.map(my_fn, num_parallel_calls=tf.data.experimental.AUTOTUNE)
   
 
-def _train_and_eval_batches(dataset, data_dir, input_name, n_devices, custom_preprocess, src_truncate, tgt_truncate):
+def _train_and_eval_batches(dataset, data_dir, input_name, n_devices, 
+                            custom_preprocess, src_truncate, tgt_truncate, 
+                            train_dataset_size, valid_dataset_size):
   """Return train and eval batches with input name and shape."""
   (train_data, eval_data, features_info, keys) = train_and_eval_dataset(
       dataset, data_dir)
@@ -809,6 +813,10 @@ def _train_and_eval_batches(dataset, data_dir, input_name, n_devices, custom_pre
   if custom_preprocess:
     sp_model = tf.gfile.GFile(DEFAULT_SPM_PATH, "rb").read()
     tokenizer = tf_text.SentencepieceTokenizer(model=sp_model)
+    if train_dataset_size != -1:
+      train_data = train_data.take(train_dataset_size)
+    if valid_dataset_size != -1:
+      valid_data = valid_data.take(valid_dataset_size)
     train_data = encode_string_features(
             train_data, tokenizer, src_truncate, 
             tgt_truncate, keys=keys, copy_plaintext=True)
