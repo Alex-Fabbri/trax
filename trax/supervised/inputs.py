@@ -124,7 +124,6 @@ class Inputs(object):
 # TODO(lukaszkaiser): can we improve efficiency, should that be changed?
 _MAX_SKIP_EXAMPLES = 1e5
 
-
 def download_and_prepare(dataset_name, data_dir):
   """Downloads and prepares T2T or TFDS dataset.
 
@@ -492,9 +491,6 @@ def batch_fn(dataset, training, shapes, target_names, n_devices,
         example_length, boundaries, batch_sizes,
         pad_to_bucket_boundary=True))
   else:
-    # print(shapes)
-    # TODO(alex-fabbri): here is the error -- with shapes
-    # exit()
     dataset = dataset.padded_batch(cur_batch_size, shapes)
   if training:
     return dataset.shuffle(batch_shuffle_size)
@@ -788,7 +784,13 @@ def encode_string_features(
         #  TODO(alex-fabbri): modify
         # v = tf.cast(vocabulary.encode(v), tf.int64)
         # v = tf.cast(vocabulary.EncodeAsIds(v), tf.int64)
-        v = tf.cast(vocabulary.tokenize(v), tf.int64)
+        if k == 'article':
+          v = tf.cast(vocabulary.tokenize(v), tf.int64)
+          v = tf.slice(v, [0], [tf.minimum(tf.shape(v)[0], 512)])
+        else:
+          v = tf.cast(vocabulary.tokenize(v), tf.int64)
+          v = tf.slice(v, [0], [tf.minimum(tf.shape(v)[0], 100)])
+          # v = tf.slice(v, [0], [5])
       ret[k] = v
     return ret
   return dataset.map(my_fn, num_parallel_calls=tf.data.experimental.AUTOTUNE)
