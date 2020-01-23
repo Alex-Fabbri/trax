@@ -29,6 +29,8 @@ batch_fn.buckets_include_inputs_in_length=True
 inputs.data_dir = None
 inputs.dataset_name = 'cnn_dailymail'
 inputs.custom_preprocess = True
+inputs.src_truncate = 512
+inputs.tgt_truncate = 100
 
 # Parameters for MultifactorSchedule:
 # ==============================================================================

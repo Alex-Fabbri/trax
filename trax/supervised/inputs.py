@@ -160,7 +160,7 @@ def download_and_prepare(dataset_name, data_dir):
 
 
 @gin.configurable()
-def inputs(dataset_name, data_dir=None, input_name=None, custom_preprocess=False):
+def inputs(dataset_name, data_dir=None, input_name=None, custom_preprocess=False, src_truncate=-1, tgt_truncate=-1):
   """Make Inputs for built-in datasets.
 
   Args:
@@ -179,7 +179,8 @@ def inputs(dataset_name, data_dir=None, input_name=None, custom_preprocess=False
     """Create the stream, cache TF streams if needed."""
     if n_devices not in cache:
       cache[n_devices] = _train_and_eval_batches(
-          dataset_name, data_dir, input_name, n_devices, custom_preprocess)
+          dataset_name, data_dir, input_name, n_devices, custom_preprocess, 
+          src_truncate, tgt_truncate)
 
     (train_batches, train_eval_batches, eval_batches,
      input_name_c) = cache[n_devices]
@@ -757,7 +758,7 @@ def shuffle_and_batch_data(dataset,
   return dataset.prefetch(2)
 
 def encode_string_features(
-    dataset, vocabulary, keys, copy_plaintext=False):
+    dataset, vocabulary, src_truncate, tgt_truncate, keys, copy_plaintext=False):
   """Encode specified string features.
 
   Passes through non-string features unchanged. Optionally passes through copy
@@ -788,11 +789,11 @@ def encode_string_features(
           ret["%s_plaintext" % k] = v
         if k == keys[0]:
           v = tf.cast(vocabulary.tokenize(v), tf.int64)
-          v = tf.slice(v, [0], [tf.minimum(tf.shape(v)[0], 512-1)])
+          v = tf.slice(v, [0], [tf.minimum(tf.shape(v)[0], src_truncate-1)])
           v = tf.concat([v, [1]], 0)
         else:
           v = tf.cast(vocabulary.tokenize(v), tf.int64)
-          v = tf.slice(v, [0], [tf.minimum(tf.shape(v)[0], 100-1)])
+          v = tf.slice(v, [0], [tf.minimum(tf.shape(v)[0], tgt_truncate-1)])
           #  TODO remove hard coding
           v = tf.concat([v, [1]], 0)
       ret[k] = v
@@ -800,7 +801,7 @@ def encode_string_features(
   return dataset.map(my_fn, num_parallel_calls=tf.data.experimental.AUTOTUNE)
   
 
-def _train_and_eval_batches(dataset, data_dir, input_name, n_devices, custom_preprocess):
+def _train_and_eval_batches(dataset, data_dir, input_name, n_devices, custom_preprocess, src_truncate, tgt_truncate):
   """Return train and eval batches with input name and shape."""
   (train_data, eval_data, features_info, keys) = train_and_eval_dataset(
       dataset, data_dir)
@@ -809,11 +810,11 @@ def _train_and_eval_batches(dataset, data_dir, input_name, n_devices, custom_pre
     sp_model = tf.gfile.GFile(DEFAULT_SPM_PATH, "rb").read()
     tokenizer = tf_text.SentencepieceTokenizer(model=sp_model)
     train_data = encode_string_features(
-            train_data, tokenizer, keys=keys,
-            copy_plaintext=True)
+            train_data, tokenizer, src_truncate, 
+            tgt_truncate, keys=keys, copy_plaintext=True)
     eval_data = encode_string_features(
-            eval_data, tokenizer, keys=keys,
-            copy_plaintext=True)
+            eval_data, tokenizer, src_truncate, 
+            tgt_truncate, keys=keys, copy_plaintext=True)
     if not isinstance(target_names, list):
       target_names = [target_names]
   train_batches = shuffle_and_batch_data(
