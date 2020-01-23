@@ -160,7 +160,7 @@ def download_and_prepare(dataset_name, data_dir):
 
 
 @gin.configurable()
-def inputs(dataset_name, data_dir=None, input_name=None):
+def inputs(dataset_name, data_dir=None, input_name=None, custom_preprocess=False):
   """Make Inputs for built-in datasets.
 
   Args:
@@ -179,7 +179,7 @@ def inputs(dataset_name, data_dir=None, input_name=None):
     """Create the stream, cache TF streams if needed."""
     if n_devices not in cache:
       cache[n_devices] = _train_and_eval_batches(
-          dataset_name, data_dir, input_name, n_devices)
+          dataset_name, data_dir, input_name, n_devices, custom_preprocess)
 
     (train_batches, train_eval_batches, eval_batches,
      input_name_c) = cache[n_devices]
@@ -342,8 +342,6 @@ def train_and_eval_dataset(dataset_name, data_dir, eval_holdout_size=0,
   keys = None
   if info.supervised_keys:
     keys = ([info.supervised_keys[0]], [info.supervised_keys[1]])
-  # TODO(alex-fabbri): if we want to set keys, need to take care of feature.info as well
-  # keys = ['inputs', 'targets']
   return train, valid, info.features, keys
 
 
@@ -425,7 +423,7 @@ def _train_and_eval_dataset_v1(problem_name, data_dir,
 
 @gin.configurable(blacklist=['dataset', 'training', 'shapes',
                              'target_names', 'n_devices'])
-def batch_fn(dataset, training, shapes, target_names, n_devices,
+def batch_fn(dataset, training, shapes, input_names, target_names, n_devices,
              batch_size_per_device=32, batch_size=None, eval_batch_size=32,
              bucket_length=32, buckets=None,
              buckets_include_inputs_in_length=False,
@@ -475,7 +473,7 @@ def batch_fn(dataset, training, shapes, target_names, n_devices,
       other_length = 0
       if buckets_include_inputs_in_length:
         # other_length = tf.shape(example_inputs['inputs'])[0]
-        other_length = tf.shape(example_inputs['article'])[0]
+        other_length = tf.shape(example_inputs[input_names[0]])[0]
       return tf.maximum(tf.shape(target)[0], other_length)
     boundaries, batch_sizes = buckets
     dataset = dataset.apply(tf.data.experimental.bucket_by_sequence_length(
@@ -621,15 +619,11 @@ def wmt_preprocess(dataset, training, shapes,
   """Preprocessing for LM1B: filter out targets exceeding maximum length."""
 
   def train_right_length(example, target):
-    # l = tf.maximum(tf.shape(example['inputs'])[0], tf.shape(target)[0])
-    # TODO(alex-fabbri): change
-    l = tf.maximum(tf.shape(example['article'])[0], tf.shape(target)[0])
+    l = tf.maximum(tf.shape(example['inputs'])[0], tf.shape(target)[0])
     return tf.less(l, max_length + 1)
 
   def eval_right_length(example, target):
-    # l = tf.maximum(tf.shape(example['inputs'])[0], tf.shape(target)[0])
-    # TODO(alex-fabbri): change
-    l = tf.maximum(tf.shape(example['highlights'])[0], tf.shape(target)[0])
+    l = tf.maximum(tf.shape(example['inputs'])[0], tf.shape(target)[0])
     return tf.less(l, max_eval_length + 1)
 
   if max_length > 0 and training:
@@ -640,8 +634,27 @@ def wmt_preprocess(dataset, training, shapes,
 
   return dataset, shapes
 
-# TODO(alex-fabbri): first solution to get something running is just to create a different preprocessing function for each 
+@gin.configurable(blacklist=['dataset', 'training', 'shapes'])
+def tfds_preprocess(dataset, training, shapes,
+                   max_length=-1, max_eval_length=-1,
+                   input_name = 'inputs', target_name='targets'):
+  """Preprocessing for LM1B: filter out targets exceeding maximum length."""
 
+  def train_right_length(example, target):
+    l = tf.maximum(tf.shape(example[input_name])[0], tf.shape(target)[0])
+    return tf.less(l, max_length + 1)
+
+  def eval_right_length(example, target):
+    l = tf.maximum(tf.shape(example[target_name])[0], tf.shape(target)[0])
+    return tf.less(l, max_eval_length + 1)
+
+  if max_length > 0 and training:
+    dataset = dataset.filter(train_right_length)
+
+  if max_eval_length > 0 and not training:
+    dataset = dataset.filter(eval_right_length)
+
+  return dataset, shapes
 
 @gin.configurable(blacklist=['dataset', 'training', 'shapes'])
 def wmt_concat_preprocess(dataset, training, shapes,
@@ -707,6 +720,7 @@ def bair_robot_pushing_preprocess(dataset, training, shapes):
 
 @gin.configurable(whitelist=['preprocess_fun', 'shuffle_buffer_size'])
 def shuffle_and_batch_data(dataset,
+                           input_names, 
                            target_names,
                            features_info,
                            training,
@@ -735,13 +749,11 @@ def shuffle_and_batch_data(dataset,
     dataset = dataset.skip(random.randint(0, _MAX_SKIP_EXAMPLES))
   shapes = {k: features_info[k].shape for k in features_info}
   shapes = (shapes, shapes[target_names[0]])
-  # TODO -- need to change the batching function
-  # import pdb;pdb.set_trace()
-  # test = dataset.take(1)
   dataset, shapes = preprocess_fun(dataset, training, shapes)
-  shapes = ({'article': [None], 'highlights': [None]}, [None])
+  # TODO(alex-fabbri): this seems to be fine for most summ/translation data but can be more general
+  shapes = ({input_names[0]: [None], target_names[0]: [None]}, [None])
   dataset = dataset.shuffle(shuffle_buffer_size)
-  dataset = batch_fn(dataset, training, shapes, target_names, n_devices)
+  dataset = batch_fn(dataset, training, shapes, input_names, target_names, n_devices)
   return dataset.prefetch(2)
 
 def encode_string_features(
@@ -760,7 +772,7 @@ def encode_string_features(
   Returns:
     a tf.data.Dataset
   """
-  keys = set(keys)
+  keys = keys[0] + keys[1]
   def my_fn(features):
     """Encode all specified feature that are strings and return a dictionary.
 
@@ -774,10 +786,7 @@ def encode_string_features(
       if v.dtype == tf.string and k in keys:
         if copy_plaintext:
           ret["%s_plaintext" % k] = v
-        #  TODO(alex-fabbri): modify
-        # v = tf.cast(vocabulary.encode(v), tf.int64)
-        # v = tf.cast(vocabulary.EncodeAsIds(v), tf.int64)
-        if k == 'article':
+        if k == keys[0]:
           v = tf.cast(vocabulary.tokenize(v), tf.int64)
           v = tf.slice(v, [0], [tf.minimum(tf.shape(v)[0], 512-1)])
           v = tf.concat([v, [1]], 0)
@@ -786,37 +795,35 @@ def encode_string_features(
           v = tf.slice(v, [0], [tf.minimum(tf.shape(v)[0], 100-1)])
           #  TODO remove hard coding
           v = tf.concat([v, [1]], 0)
-          # v = tf.slice(v, [0], [5])
       ret[k] = v
     return ret
   return dataset.map(my_fn, num_parallel_calls=tf.data.experimental.AUTOTUNE)
   
 
-def _train_and_eval_batches(dataset, data_dir, input_name, n_devices):
+def _train_and_eval_batches(dataset, data_dir, input_name, n_devices, custom_preprocess):
   """Return train and eval batches with input name and shape."""
   (train_data, eval_data, features_info, keys) = train_and_eval_dataset(
       dataset, data_dir)
   input_names, target_names = keys[0], keys[1]
-  sp_model = tf.gfile.GFile(DEFAULT_SPM_PATH, "rb").read()
-  keys = ["article", "highlights"]
-  tokenizer = tf_text.SentencepieceTokenizer(model=sp_model)
-  train_data = encode_string_features(
-          train_data, tokenizer, keys=keys,
-          copy_plaintext=True)
-  eval_data = encode_string_features(
-          eval_data, tokenizer, keys=keys,
-          copy_plaintext=True)
-  if not isinstance(target_names, list):
-    target_names = [target_names]
+  if custom_preprocess:
+    sp_model = tf.gfile.GFile(DEFAULT_SPM_PATH, "rb").read()
+    tokenizer = tf_text.SentencepieceTokenizer(model=sp_model)
+    train_data = encode_string_features(
+            train_data, tokenizer, keys=keys,
+            copy_plaintext=True)
+    eval_data = encode_string_features(
+            eval_data, tokenizer, keys=keys,
+            copy_plaintext=True)
+    if not isinstance(target_names, list):
+      target_names = [target_names]
   train_batches = shuffle_and_batch_data(
-      train_data, target_names, features_info, training=True,
+      train_data, input_names, target_names, features_info, training=True,
       n_devices=n_devices)
   train_eval_batches = shuffle_and_batch_data(  # Data for eval-on-train
-      train_data, target_names, features_info, training=False,
+      train_data, input_names, target_names, features_info, training=False,
       n_devices=n_devices)
-  # import pdb;pdb.set_trace()
   eval_batches = shuffle_and_batch_data(
-      eval_data, target_names, features_info, training=False,
+      eval_data, input_names, target_names, features_info, training=False,
       n_devices=n_devices)
   input_name = input_name or input_names[0]
   return (train_batches, train_eval_batches, eval_batches, input_name)

@@ -28,6 +28,7 @@ batch_fn.buckets_include_inputs_in_length=True
 # ==============================================================================
 inputs.data_dir = None
 inputs.dataset_name = 'cnn_dailymail'
+inputs.custom_preprocess = True
 
 # Parameters for MultifactorSchedule:
 # ==============================================================================
@@ -47,9 +48,11 @@ Adafactor.multiply_by_parameter_scale = True
 
 # Parameters for preprocess_fun:
 # ==============================================================================
-shuffle_and_batch_data.preprocess_fun=@trax.supervised.inputs.wmt_preprocess
-wmt_preprocess.max_length = 512
-wmt_preprocess.max_eval_length = 1024
+shuffle_and_batch_data.preprocess_fun=@trax.supervised.inputs.tfds_preprocess
+tfds_preprocess.max_length = 512
+tfds_preprocess.max_eval_length = 1024
+tfds_preprocess.input_name = 'article'
+tfds_preprocess.target_name = 'highlights'
 
 # Parameters for train:
 # ==============================================================================
