@@ -333,21 +333,12 @@ def train_and_eval_dataset(dataset_name, data_dir, eval_holdout_size=0,
     eval_split = tfds.Split.VALIDATION
     if tfds.Split.VALIDATION not in splits:
       eval_split = tfds.Split.TEST
-  # def map_fn(x):
-  #   return {
-  #       'inputs': x[article_key],
-  #       'targets': x[summary_key],
-  #   }
   train = tfds.load(
       name=dataset_name, split=train_split, data_dir=data_dir,
       shuffle_files=train_shuffle_files)
   valid = tfds.load(
       name=dataset_name, split=eval_split, data_dir=data_dir,
       shuffle_files=eval_shuffle_files)
-  article_key = "article"
-  summary_key = "highlights"
-  # train = train.map(map_fn, num_parallel_calls=tf.data.experimental.AUTOTUNE)
-  # valid = valid.map(map_fn, num_parallel_calls=tf.data.experimental.AUTOTUNE)
   keys = None
   if info.supervised_keys:
     keys = ([info.supervised_keys[0]], [info.supervised_keys[1]])
@@ -745,6 +736,8 @@ def shuffle_and_batch_data(dataset,
   shapes = {k: features_info[k].shape for k in features_info}
   shapes = (shapes, shapes[target_names[0]])
   # TODO -- need to change the batching function
+  # import pdb;pdb.set_trace()
+  # test = dataset.take(1)
   dataset, shapes = preprocess_fun(dataset, training, shapes)
   shapes = ({'article': [None], 'highlights': [None]}, [None])
   dataset = dataset.shuffle(shuffle_buffer_size)
@@ -786,10 +779,13 @@ def encode_string_features(
         # v = tf.cast(vocabulary.EncodeAsIds(v), tf.int64)
         if k == 'article':
           v = tf.cast(vocabulary.tokenize(v), tf.int64)
-          v = tf.slice(v, [0], [tf.minimum(tf.shape(v)[0], 512)])
+          v = tf.slice(v, [0], [tf.minimum(tf.shape(v)[0], 512-1)])
+          v = tf.concat([v, [1]], 0)
         else:
           v = tf.cast(vocabulary.tokenize(v), tf.int64)
-          v = tf.slice(v, [0], [tf.minimum(tf.shape(v)[0], 100)])
+          v = tf.slice(v, [0], [tf.minimum(tf.shape(v)[0], 100-1)])
+          #  TODO remove hard coding
+          v = tf.concat([v, [1]], 0)
           # v = tf.slice(v, [0], [5])
       ret[k] = v
     return ret
@@ -801,9 +797,6 @@ def _train_and_eval_batches(dataset, data_dir, input_name, n_devices):
   (train_data, eval_data, features_info, keys) = train_and_eval_dataset(
       dataset, data_dir)
   input_names, target_names = keys[0], keys[1]
-  # import pdb;pdb.set_trace()
-  # tokenizer = sentencepiece_processor.SentencePieceProcessor()
-  # tokenizer.LoadFromSerializedProto(sp_model)
   sp_model = tf.gfile.GFile(DEFAULT_SPM_PATH, "rb").read()
   keys = ["article", "highlights"]
   tokenizer = tf_text.SentencepieceTokenizer(model=sp_model)
@@ -815,8 +808,6 @@ def _train_and_eval_batches(dataset, data_dir, input_name, n_devices):
           copy_plaintext=True)
   if not isinstance(target_names, list):
     target_names = [target_names]
-  # train_data = train_data.take(1000)
-  # eval_data = eval_data.take(1000)
   train_batches = shuffle_and_batch_data(
       train_data, target_names, features_info, training=True,
       n_devices=n_devices)
