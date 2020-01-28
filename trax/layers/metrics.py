@@ -65,6 +65,11 @@ def CrossEntropyLoss(id_to_mask=None, has_weights=False):
   """Computes weighted masked mean of prediction-target cross entropies."""
   return _WeightedMaskedMean(_CrossEntropy(), id_to_mask, has_weights)
 
+# TODO finish this 
+# def RougeScore(id_to_mask=None, has_weights=False):
+#   """Computes weighted masked mean of prediction-target cross entropies."""
+#   return _WeightedMaskedMean(some_rouge_function, id_to_mask, has_weights)
+
 
 def SumOfWeights(id_to_mask=None, has_weights=False):
   """Returns a layer to compute sum of weights of all non-masked elements."""

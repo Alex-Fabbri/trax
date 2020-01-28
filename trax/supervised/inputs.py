@@ -433,6 +433,7 @@ def batch_fn(dataset, training, shapes, input_names, target_names, n_devices,
              batch_shuffle_size=128, max_eval_length=None):
   """Batching function."""
   del target_names
+  import pdb;pdb.set_trace()
   # Batch size is batch_size_per_device * n_devices unless given directly.
   batch_size = batch_size or batch_size_per_device * n_devices
   # If bucketing is not specified, check if target shapes are variable.
@@ -641,8 +642,7 @@ def wmt_preprocess(dataset, training, shapes,
 def tfds_preprocess(dataset, training, shapes,
                    max_length=-1, max_eval_length=-1,
                    input_name = 'inputs', target_name='targets'):
-  """Preprocessing for LM1B: filter out targets exceeding maximum length."""
-
+                   
   def train_right_length(example, target):
     l = tf.maximum(tf.shape(example[input_name])[0], tf.shape(target)[0])
     return tf.less(l, max_length + 1)
@@ -810,9 +810,14 @@ def _train_and_eval_batches(dataset, data_dir, input_name, n_devices,
   (train_data, eval_data, features_info, keys) = train_and_eval_dataset(
       dataset, data_dir)
   input_names, target_names = keys[0], keys[1]
+  train_data = train_data.take(100)
+  eval_data = eval_data.take(100)
+  # train_data = tfds.as_numpy(train_data)
+  # eval_data = tfds.as_numpy(eval_data)
   if custom_preprocess:
     sp_model = tf.gfile.GFile(DEFAULT_SPM_PATH, "rb").read()
     tokenizer = tf_text.SentencepieceTokenizer(model=sp_model)
+    # TODO change
     if train_dataset_size != -1:
       train_data = train_data.take(train_dataset_size)
     if valid_dataset_size != -1:
@@ -834,5 +839,6 @@ def _train_and_eval_batches(dataset, data_dir, input_name, n_devices,
   eval_batches = shuffle_and_batch_data(
       eval_data, input_names, target_names, features_info, training=False,
       n_devices=n_devices)
+  # train_batches = tfds.as_numpy(train_batches)
   input_name = input_name or input_names[0]
   return (train_batches, train_eval_batches, eval_batches, input_name)

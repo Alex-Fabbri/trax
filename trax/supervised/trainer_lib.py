@@ -86,18 +86,19 @@ class Trainer(object):
                nontrainable_param_map=None, id_to_mask=None, metrics=None):
 
     self._is_chief, self._n_devices, rng = (
-        self._init_host_and_devices(n_devices, random_seed))
+       self._init_host_and_devices(n_devices, random_seed))
     self._should_save_checkpoints = should_save_checkpoints and self._is_chief
     self._checkpoints_at = checkpoints_at or []
     self._should_write_summaries = should_write_summaries
 
     self._has_weights = has_weights
     self._id_to_mask = id_to_mask
+    # TODO(alex-fabbri): modify metrics here to include a ROUGE-based metric
     self._metrics_dict = metrics if metrics is not None else _DEFAULT_METRICS
     loss_fn = loss_fn(has_weights=has_weights, id_to_mask=id_to_mask)
     # Inputs is either an Inputs instance or a function that returns it.
     self._inputs = inputs
-    if callable(inputs):  # If we pass a function, e.g., through gin, call it.
+    if callable(inputs):  # If we pass a Pfunction, e.g., through gin, call it.
       self._inputs = inputs()
 
     # Initialize the learning rate to a dummy value. It will be set in reset().
@@ -281,6 +282,7 @@ class Trainer(object):
     self._lr_fn = self._lr_schedule(history)
     self._history = history
     if state.opt_state:
+      # Goes in here when using output_dir on conf
       opt_state = state.opt_state
       model_state = state.model_state
     else:
@@ -302,7 +304,9 @@ class Trainer(object):
     start_time = time.time()
 
     for _ in range(n_steps):
+      import pdb;pdb.set_trace # check size before reshape_by_device
       batch = next(self._train_stream)
+      import pdb;pdb.set_trace()
       if self.n_devices > 1:  # TODO(lukaszkaiser): use everywhere if possible.
         batch = _reshape_by_device(batch, self.n_devices)
       self.train_step(batch)
@@ -655,6 +659,110 @@ def train(output_dir,
 
   trainer.log_step('Training done')
   return trainer.state
+
+
+@gin.configurable()
+def eval(output_dir,
+          model=gin.REQUIRED,
+          loss_fn=tl.CrossEntropyLoss,
+          inputs=trax_inputs.inputs,
+          optimizer=trax_opt.Adafactor,
+          lr_schedule=lr.MultifactorSchedule,
+          trainer_class=Trainer,
+          steps=1000,
+          checkpoints_at=None,
+          eval_steps=10,
+          eval_frequency=100,
+          random_seed=None,
+          save_graphs=True,
+          save_backward_graph=False,
+          has_weights=False,
+          nontrainable_param_map=None,
+          id_to_mask=None,
+          metrics=None):
+  """Eval the model on the inputs.
+
+  Args:
+    output_dir: Directory where to put the logs and checkpoints.
+    model: The model to train as a callable returning 2 callables, an init_fn
+      and apply_fn.
+    loss_fn: callable with signature: weights, trax.inputs.Inputs, model, state,
+      rng -> loss.
+    inputs: callable returning trax.inputs.Inputs.
+    optimizer: The optimizer (see optimizers/base.py for signature).
+    lr_schedule: A learning rate schedule as a function that takes history and
+      returns a function from step to learning rate (a float).
+    trainer_class: The trainer class to use.
+    steps: int, total number of training steps.
+    checkpoints_at: list of integers. Save a checkpoint for each training step
+      in the list.
+    eval_steps: int, num of steps per evaluation. If None or 0, eval disabled.
+    eval_frequency: int, how often to run evaluation (every eval_frequency
+      steps). If None or 0, eval disabled.
+    random_seed: the random seed to use; time/os dependent if None (default).
+    save_graphs: bool, if True, save computation graph to file.
+    save_backward_graph: bool, if True, save backward graph to file too.
+    has_weights: bool, whether weights are included in the inputs.
+    nontrainable_param_map: dict, mapping from model nontrainable parameter
+      names to control names in PolicySchedule.
+    id_to_mask: id to mask out (None by default).
+    metrics: optionally override the default metrics dictionary.
+
+  Returns:
+    trax.TrainerState
+  """
+  model_predict = model(mode='predict')
+  return model_predict
+  n_devices = num_devices()
+  # TODO(lukaszkaiser): remove has_weights and id_to_mask (configure loss).
+  trainer = trainer_class(model, loss_fn, optimizer, lr_schedule, inputs,
+                          output_dir,
+                          random_seed=random_seed, n_devices=n_devices,
+                          checkpoints_at=checkpoints_at,
+                          has_weights=has_weights,
+                          nontrainable_param_map=nontrainable_param_map,
+                          metrics=metrics, id_to_mask=id_to_mask)
+  import pdb;pdb.set_trace()
+  for i in range(100):
+    batch = next(trainer._eval_stream)
+    if trainer.n_devices > 1:  # TODO(lukaszkaiser): use everywhere if possible.
+        batch = _reshape_by_device(batch, trainer.n_devices)
+        # This line should give us logits?
+        output = trainer._model_predict_eval(batch[0])
+        output = trainer._model_predict_eval(batch)
+
+  #   for _ in range(n_steps):
+  #     batch = next(self._train_stream)
+  #     if self.n_devices > 1:  # TODO(lukaszkaiser): use everywhere if possible.
+  #       batch = _reshape_by_device(batch, self.n_devices)
+  #     self.train_step(batch)
+  print("HI")
+
+  # epoch_steps = [steps]  # Only training if eval_frequency is 0 or None
+  # if eval_frequency and eval_steps > 0:
+  #   epoch_steps = itertools.chain([1,  # first epoch only 1 step
+  #                                  eval_frequency - 1],
+  #                                 itertools.repeat(eval_frequency))
+  # trainer.log_step('Starting training using %d devices' % trainer.n_devices)
+  # trainer.print_n_weights()
+
+  # for epoch_steps in epochs(steps, trainer.step, epoch_steps):
+  #   trainer.train_epoch(epoch_steps, eval_steps)
+
+  #   # Update nontrainable parameters with new history
+  #   trainer.update_nontrainable_params()
+
+  #   # Bookkeeping we do at the first step
+  #   if trainer.step == 1:
+  #     # Save computation graph (single-device only for now)
+  #     if (save_graphs and math.backend_name() == 'jax'):
+  #       trainer.save_computation_graphs(save_backward_graph)
+
+  #     # Save Gin config
+  #     trainer.save_gin()
+
+  # trainer.log_step('Training done')
+  # return trainer.state
 
 
 @gin.configurable
