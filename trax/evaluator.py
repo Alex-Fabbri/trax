@@ -211,7 +211,6 @@ def prep_data(dataset):
     tmp = tf.slice(tmp, [0], [tf.minimum(tf.shape(tmp)[0], 512-1)])
     tmp = tf.concat([tmp, [1]], 0)
     tmp = tf.keras.preprocessing.sequence.pad_sequences([tmp], maxlen=512)
-    # import pdb;pdb.set_trace()
     final_data.append((tmp, tgt))
     # tmp = tmp.numpy()
     # test = np.zeroes((1,512), np.int64)
@@ -229,59 +228,101 @@ def main(_):
   _jax_and_tf_configure_for_devices()
 
   output_dir = _output_dir_or_default()
-
-  model = trainer_lib.eval(output_dir=output_dir)
-  predict_signature = trax.shapes.ShapeDtype((1,1), dtype=np.int32)
-  predict_signature_src = trax.shapes.ShapeDtype((1,512), dtype=np.int32)
-  model.init((predict_signature_src, predict_signature))
-  model.init_from_file(os.path.join(output_dir, "model.pkl"),
+  # model = trainer_lib.eval(output_dir=output_dir)
+  # trainer = trainer_lib.eval(output_dir=output_dir)
+  trainer, cur_model = trainer_lib.eval(output_dir=output_dir)
+  # predict_signature_tgt = trax.shapes.ShapeDtype((1,100), dtype=np.int32)
+  # predict_signature_tgt = trax.shapes.ShapeDtype((1, 100), dtype=np.int32)
+  predict_signature_tgt = trax.shapes.ShapeDtype((1, 1), dtype=np.int32)
+  predict_signature_src = trax.shapes.ShapeDtype((1, 512), dtype=np.int32)
+  cur_model.init((predict_signature_src, predict_signature_tgt))
+  cur_model.init_from_file(os.path.join(output_dir, "model.pkl"),
                              weights_only=True)
+  cur_input = np.array([[100]], dtype=np.int32)
+  zeros = np.zeros((1, 512), dtype=np.int32)
+  import pdb;pdb.set_trace()
+  batch = next(trainer._eval_stream)
+  # decode for 100 steps
+  src = batch[0]
+  tgt = batch[1]
+  # cur_model = trainer._model_predict_eval
+  # cur_model.init_from_file(os.path.join(output_dir, "model.pkl"),
+  #                            weights_only=True)
 
-  dataset = tfds.load(name="cnn_dailymail", split="test")
-  np_dataset = tfds.as_numpy(dataset)
-  dataset_final = prep_data(np_dataset)
-  max_target_len = 100
+  # out = cur_model((batch[0], batch[1]))
   sp_model = tf.io.gfile.GFile(DEFAULT_SPM_PATH, "rb").read()
   tokenizer = tf_text.SentencepieceTokenizer(model=sp_model)
+  cur_input = np.array([[0]]) # bos 
+  # out = cur_mode((batch[0], cur_input))
   output = ""
+  for i in range(25):
+    out = cur_model((src, cur_input))
+    # out = cur_model((src, cur_input), state=0)
+    # cur_pred = np.argmax(out[0].copy()).item()
+    last_index = np.argmax(out[0][0], axis=1).copy()[-1]
+    cur_tok = tokenizer.detokenize([last_index]).numpy().decode()
+    output += " " + cur_tok
+    # cur_tok = tokenizer.id_to_string(cur_pred).numpy().decode()
+    # print(cur_tok)
+    # print(cur_str)
+    # cur_input = indices
+    cur_input = np.array([[last_index]]) 
+    # if i == 0:
+    #   cur_input = np.array([[last_index]]) 
+    # else:
+    #   # cur_input = cur_input + np.array([list(cur_input[0].copy()) + [last_index]]) 
+    #   cur_input = np.array([list(cur_input[0].copy()) + [last_index]])
+    # # cur_input = np.reshape(indices, (1, indices.shape[0]))
+  print(output)
+  exit()
+
+# indices = np.argmax(out[0][0], axis=1)
+# tokenizer.detokenize(indices.copy())
+# <tf.Tensor: id=640, shape=(), dtype=string, numpy=b"insured rate dropped dropped from 20.3 percent 
+# to 13.2 percent between theobtober   hbamacare  enrollmentendforcess .  barobama campaigned in 
+# the promise of a medical insurance law 'that will cover every american' and hhs secretary saidd 
+# that   be toa  subsidies.reout avenue a number of avenues' under house    for the  premium">
+
+
+  # dataset = tfds.load(name="cnn_dailymail", split="test")
+  # np_dataset = tfds.as_numpy(dataset)
+  # dataset_final = prep_data(np_dataset)
+  # max_target_len = 100
+
+  # output = ""
   
-  # import pdb;pdb.set_trace()
-  for data in dataset_final:
-    src = data[0]
-    tgt_str = data[1]
-    cur_input = np.array([[100]])
-    # import pdb;pdb.set_trace()
-    for i in range(max_target_len):
-      print(i)
-      import pdb;pdb.set_trace()
-      # print("about to run")
-      out = model((src, cur_input))
-      # take argmax, use as input to the next
-      # TODO check why we need to have [[0]] and not [0]
-      copy_ar = out[0].copy()
-      # import pdb;pdb.set_trace()
-      argmax_ = np.argmax(copy_ar)
-      # cur_tok = tokenizer.id_to_string(argmax_).numpy().decode()
-      cur_tok = tokenizer.id_to_string(argmax_.copy().item()).numpy().decode()
-      print(cur_tok)
-      output += cur_tok + " "
-      cur_input = np.array([[argmax_]])
-    print(output)
-    exit()
+  # for data in dataset_final:
+  #   src = data[0]
+  #   tgt_str = data[1]
+  #   cur_input = np.array([[100]])
+  #   for i in range(max_target_len):
+  #     print(i)
+  #     # print("about to run")
+  #     out = model((src, cur_input))
+  #     # take argmax, use as input to the next
+  #     # TODO check why we need to have [[0]] and not [0]
+  #     copy_ar = out[0].copy()
+  #     argmax_ = np.argmax(copy_ar)
+  #     # cur_tok = tokenizer.id_to_string(argmax_).numpy().decode()
+  #     cur_tok = tokenizer.id_to_string(argmax_.copy().item()).numpy().decode()
+  #     print(cur_tok)
+  #     output += cur_tok + " "
+  #     cur_input = np.array([[argmax_]])
+  #   print(output)
+  #   exit()
 
-    # print(data)
+  #   # print(data)
 
 
-  # if FLAGS.use_tpu and math.backend_name() == 'tf':
-  #   _train_using_tf(output_dir)
-  # else:
+  # # if FLAGS.use_tpu and math.backend_name() == 'tf':
+  # #   _train_using_tf(output_dir)
+  # # else:
 
-  cur_input = np.array([[0]])
-  cur_input_src = np.array([[0, 10]])
-  test = (cur_input_src, cur_input)
-  out = model(test)
-  import pdb;pdb.set_trace()
-  print(out[1].shape)
+  # cur_input = np.array([[0]])
+  # cur_input_src = np.array([[0, 10]])
+  # test = (cur_input_src, cur_input)
+  # out = model(test)
+  # print(out[1].shape)
 
 if __name__ == '__main__':
   app.run(main)

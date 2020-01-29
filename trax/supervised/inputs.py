@@ -118,7 +118,6 @@ class Inputs(object):
     """Dtype of the target."""
     return self._target_dtype
 
-
 # How many examples from the stream to skip at random during training.
 # For now, we skip at most 100K examples for efficiency.
 # TODO(lukaszkaiser): can we improve efficiency, should that be changed?
@@ -198,77 +197,77 @@ def inputs(dataset_name, data_dir=None, input_name=None, custom_preprocess=False
                 eval_stream=lambda n: stream(n, 'eval'))
 
 
-@gin.configurable()
-def random_inputs(
-    input_shape=gin.REQUIRED, input_dtype=np.int32, input_range=(0, 255),
-    output_shape=gin.REQUIRED, output_dtype=np.int32, output_range=(0, 9)):
-  """Make random Inputs for debugging.
+# @gin.configurable()
+# def random_inputs(
+#     input_shape=gin.REQUIRED, input_dtype=np.int32, input_range=(0, 255),
+#     output_shape=gin.REQUIRED, output_dtype=np.int32, output_range=(0, 9)):
+#   """Make random Inputs for debugging.
 
-  Args:
-    input_shape: the shape of inputs (including batch dimension).
-    input_dtype: the type of the inputs (int32 by default).
-    input_range: the range of inputs (defaults to (0, 255)).
-    output_shape: the shape of outputs (including batch dimension).
-    output_dtype: the type of the outputs (int32 by default).
-    output_range: the range of outputs (defaults to (0, 9)).
+#   Args:
+#     input_shape: the shape of inputs (including batch dimension).
+#     input_dtype: the type of the inputs (int32 by default).
+#     input_range: the range of inputs (defaults to (0, 255)).
+#     output_shape: the shape of outputs (including batch dimension).
+#     output_dtype: the type of the outputs (int32 by default).
+#     output_range: the range of outputs (defaults to (0, 9)).
 
-  Returns:
-    trax.inputs.Inputs
-  """
-  def random_minibatches(n_devices):
-    """Generate a stream of random mini-batches."""
-    assert input_range[0] % n_devices == 0
-    if input_dtype in [np.float16, np.float32, np.float64]:
-      rand = onp.random.uniform
-    else:
-      rand = onp.random.random_integers
-    while True:
-      inp = rand(input_range[0], input_range[1], input_shape)
-      inp = inp.astype(input_dtype)
-      out = rand(output_range[0], output_range[1], output_shape)
-      out = out.astype(output_dtype)
-      yield inp, out
+#   Returns:
+#     trax.inputs.Inputs
+#   """
+#   def random_minibatches(n_devices):
+#     """Generate a stream of random mini-batches."""
+#     assert input_range[0] % n_devices == 0
+#     if input_dtype in [np.float16, np.float32, np.float64]:
+#       rand = onp.random.uniform
+#     else:
+#       rand = onp.random.random_integers
+#     while True:
+#       inp = rand(input_range[0], input_range[1], input_shape)
+#       inp = inp.astype(input_dtype)
+#       out = rand(output_range[0], output_range[1], output_shape)
+#       out = out.astype(output_dtype)
+#       yield inp, out
 
-  return Inputs(random_minibatches)
+#   return Inputs(random_minibatches)
 
 
-@gin.configurable()
-def sequence_copy_inputs(
-    vocab_size=gin.REQUIRED, batch_size=gin.REQUIRED,
-    train_lengths=gin.REQUIRED, eval_lengths=gin.REQUIRED, reverse=False):
-  """Inputs for the sequence copy problem: 0w0w for w in [1..vocab_size-1]*.
+# @gin.configurable()
+# def sequence_copy_inputs(
+#     vocab_size=gin.REQUIRED, batch_size=gin.REQUIRED,
+#     train_lengths=gin.REQUIRED, eval_lengths=gin.REQUIRED, reverse=False):
+#   """Inputs for the sequence copy problem: 0w0w for w in [1..vocab_size-1]*.
 
-  Args:
-    vocab_size: how many symbols to use.
-    batch_size: how large are the batches.
-    train_lengths: lengths of w for training.
-    eval_lengths: lengths of w for eval.
-    reverse: bool (optional, false by default): reverse the second sequence.
+#   Args:
+#     vocab_size: how many symbols to use.
+#     batch_size: how large are the batches.
+#     train_lengths: lengths of w for training.
+#     eval_lengths: lengths of w for eval.
+#     reverse: bool (optional, false by default): reverse the second sequence.
 
-  Returns:
-    trax.inputs.Inputs
-  """
-  def random_minibatches(length_list):
-    """Generate a stream of random mini-batches."""
-    while True:
-      length = random.choice(length_list)
-      assert length % 2 == 0
-      w_length = (length // 2) - 1
-      w = onp.random.randint(low=1, high=vocab_size-1,
-                             size=(batch_size, w_length))
-      zero = onp.zeros([batch_size, 1], onp.int32)
-      loss_weights = onp.concatenate([onp.zeros((batch_size, w_length+2)),
-                                      onp.ones((batch_size, w_length))], axis=1)
-      if reverse:
-        x = onp.concatenate([zero, w, zero, np.flip(w, axis=1)], axis=1)
-      else:
-        x = onp.concatenate([zero, w, zero, w], axis=1)
-      yield (x, x, loss_weights)  # Here inputs and targets are the same.
+#   Returns:
+#     trax.inputs.Inputs
+#   """
+#   def random_minibatches(length_list):
+#     """Generate a stream of random mini-batches."""
+#     while True:
+#       length = random.choice(length_list)
+#       assert length % 2 == 0
+#       w_length = (length // 2) - 1
+#       w = onp.random.randint(low=1, high=vocab_size-1,
+#                              size=(batch_size, w_length))
+#       zero = onp.zeros([batch_size, 1], onp.int32)
+#       loss_weights = onp.concatenate([onp.zeros((batch_size, w_length+2)),
+#                                       onp.ones((batch_size, w_length))], axis=1)
+#       if reverse:
+#         x = onp.concatenate([zero, w, zero, np.flip(w, axis=1)], axis=1)
+#       else:
+#         x = onp.concatenate([zero, w, zero, w], axis=1)
+#       yield (x, x, loss_weights)  # Here inputs and targets are the same.
 
-  return Inputs(
-      train_stream=lambda _: random_minibatches(train_lengths),
-      eval_stream=lambda _: random_minibatches(eval_lengths)
-  )
+#   return Inputs(
+#       train_stream=lambda _: random_minibatches(train_lengths),
+#       eval_stream=lambda _: random_minibatches(eval_lengths)
+#   )
 
 
 def dataset_to_stream(dataset, input_name):
@@ -433,7 +432,6 @@ def batch_fn(dataset, training, shapes, input_names, target_names, n_devices,
              batch_shuffle_size=128, max_eval_length=None):
   """Batching function."""
   del target_names
-  import pdb;pdb.set_trace()
   # Batch size is batch_size_per_device * n_devices unless given directly.
   batch_size = batch_size or batch_size_per_device * n_devices
   # If bucketing is not specified, check if target shapes are variable.
@@ -480,9 +478,14 @@ def batch_fn(dataset, training, shapes, input_names, target_names, n_devices,
         other_length = tf.shape(example_inputs[input_names[0]])[0]
       return tf.maximum(tf.shape(target)[0], other_length)
     boundaries, batch_sizes = buckets
+    # This ends up padding the target to 512
+    # dataset = dataset.apply(tf.data.experimental.bucket_by_sequence_length(
+    #    example_length, boundaries, batch_sizes,
+    #    pad_to_bucket_boundary=True))
+    # This will pad to the max target length (100)
     dataset = dataset.apply(tf.data.experimental.bucket_by_sequence_length(
         example_length, boundaries, batch_sizes,
-        pad_to_bucket_boundary=True))
+        no_padding=False))
   else:
     dataset = dataset.padded_batch(cur_batch_size, shapes)
   if training:
@@ -490,130 +493,129 @@ def batch_fn(dataset, training, shapes, input_names, target_names, n_devices,
   return dataset
 
 
-# Makes the function accessible in gin configs, even with all args blacklisted.
-@gin.configurable(blacklist=['dataset', 'training', 'shapes'])
-def cifar10_no_augmentation_preprocess(dataset, training, shapes):
-  del training
-
-  def cast_image(features, targets):
-    features['image'] = tf.cast(features['image'], tf.float32) / 255.0
-    return features, targets
-
-  dataset = dataset.map(cast_image)
-  return dataset, shapes
-
-
-def _cifar_augment_image(image):
-  """Image augmentation suitable for CIFAR-10/100.
-
-  As described in https://arxiv.org/pdf/1608.06993v3.pdf (page 5).
-
-  Args:
-    image: a Tensor.
-  Returns:
-    Tensor of the same shape as image.
-  """
-  image = tf.image.resize_image_with_crop_or_pad(image, 40, 40)
-  image = tf.random_crop(image, [32, 32, 3])
-  image = tf.image.random_flip_left_right(image)
-  return image
-
-
-# Makes the function accessible in gin configs, even with all args blacklisted.
-@gin.configurable(blacklist=['dataset', 'training', 'shapes'])
-def cifar10_augmentation_preprocess(dataset, training, shapes):
-  """Preprocessing for cifar10 with augmentation (see below)."""
-
-  def augment(features, targets):
-    features['image'] = _cifar_augment_image(features['image'])
-    return features, targets
-
-  def cast_image(features, targets):
-    features['image'] = tf.cast(features['image'], tf.float32) / 255.0
-    return features, targets
-
-  if training:
-    dataset = dataset.map(augment)
-  dataset = dataset.map(cast_image)
-  return dataset, shapes
-
-
-@gin.configurable(blacklist=['dataset', 'training', 'shapes'])
-def cifar10_augmentation_flatten_preprocess(dataset, training, shapes,
-                                            predict_image_train_weight=0.01):
-  """Preprocessing for cifar10 that flattens it and appends targets."""
-
-  def augment(features, targets):
-    features['image'] = _cifar_augment_image(features['image'])
-    return features, targets
-
-  def flatten_image(features, targets):
-    """Flatten the image."""
-    img = features['image']
-    flat = tf.cast(tf.reshape(img, [-1]), tf.int64)
-    tgt = tf.expand_dims(targets, axis=0)
-    flat_with_target = tf.concat([flat, tgt], axis=0)
-    new_features = {}
-    new_features['image'] = flat_with_target
-    predict_image_weight = predict_image_train_weight if training else 0.0
-    mask_begin = tf.ones_like(flat)
-    mask_begin = tf.cast(mask_begin, tf.float32) * predict_image_weight
-    mask_end = tf.cast(tf.ones_like(tgt), tf.float32)
-    new_features['mask'] = tf.concat([mask_begin, mask_end], axis=0)
-    return new_features, flat_with_target
-
-  if training:
-    dataset = dataset.map(augment)
-  dataset = dataset.map(flatten_image)
-
-  inp_shape, _ = shapes
-  img_shape = inp_shape['image']
-  flat_shape = img_shape[0] * img_shape[1] * img_shape[2] + 1
-  new_shapes = {'image': (flat_shape,), 'mask': (flat_shape,)}
-  return dataset, (new_shapes, (flat_shape,))
-
-
 def no_preprocess(dataset, training, shapes):
   del training
   return dataset, shapes
 
+# # Makes the function accessible in gin configs, even with all args blacklisted.
+# @gin.configurable(blacklist=['dataset', 'training', 'shapes'])
+# def cifar10_no_augmentation_preprocess(dataset, training, shapes):
+#   del training
 
-@gin.configurable(blacklist=['dataset', 'training', 'shapes'])
-def concat_preprocess(dataset, training, shapes, pad_symbol=0):
-  """Pre-processing function that concatenates input and target for LM."""
-  del training
+#   def cast_image(features, targets):
+#     features['image'] = tf.cast(features['image'], tf.float32) / 255.0
+#     return features, targets
 
-  def concat(features, targets):
-    inp = features['inputs']
-    pad = tf.expand_dims(tf.zeros_like(inp[0]) + pad_symbol, axis=0)
-    concat = tf.concat([pad, inp, pad, targets], axis=0)
-    # Note: we're updating existing features dictionary here, so make sure
-    # it is not re-used in some other ways outside of this function.
-    features['inputs'] = concat
-    return features, concat
-
-  dataset = dataset.map(concat)
-  return dataset, shapes
+#   dataset = dataset.map(cast_image)
+#   return dataset, shapes
 
 
-@gin.configurable(blacklist=['dataset', 'training', 'shapes'])
-def lm1b_preprocess(dataset, training, shapes,
-                    max_target_length=-1, max_eval_target_length=-1):
-  """Preprocessing for LM1B: filter out targets exceeding maximum length."""
+# def _cifar_augment_image(image):
+#   """Image augmentation suitable for CIFAR-10/100.
 
-  def target_right_length(_, target):
-    return tf.less(tf.shape(target)[0], max_target_length + 1)
+#   As described in https://arxiv.org/pdf/1608.06993v3.pdf (page 5).
 
-  def eval_target_right_length(_, target):
-    return tf.less(tf.shape(target)[0], max_eval_target_length + 1)
+#   Args:
+#     image: a Tensor.
+#   Returns:
+#     Tensor of the same shape as image.
+#   """
+#   image = tf.image.resize_image_with_crop_or_pad(image, 40, 40)
+#   image = tf.random_crop(image, [32, 32, 3])
+#   image = tf.image.random_flip_left_right(image)
+#   return image
 
-  if max_target_length > 0 and training:
-    dataset = dataset.filter(target_right_length)
 
-  if max_eval_target_length > 0 and not training:
-    dataset = dataset.filter(eval_target_right_length)
+# Makes the function accessible in gin configs, even with all args blacklisted.
+# @gin.configurable(blacklist=['dataset', 'training', 'shapes'])
+# def cifar10_augmentation_preprocess(dataset, training, shapes):
+#   """Preprocessing for cifar10 with augmentation (see below)."""
 
-  return dataset, shapes
+#   def augment(features, targets):
+#     features['image'] = _cifar_augment_image(features['image'])
+#     return features, targets
+
+#   def cast_image(features, targets):
+#     features['image'] = tf.cast(features['image'], tf.float32) / 255.0
+#     return features, targets
+
+#   if training:
+#     dataset = dataset.map(augment)
+#   dataset = dataset.map(cast_image)
+#   return dataset, shapes
+
+
+# @gin.configurable(blacklist=['dataset', 'training', 'shapes'])
+# def cifar10_augmentation_flatten_preprocess(dataset, training, shapes,
+#                                             predict_image_train_weight=0.01):
+#   """Preprocessing for cifar10 that flattens it and appends targets."""
+
+#   def augment(features, targets):
+#     features['image'] = _cifar_augment_image(features['image'])
+#     return features, targets
+
+#   def flatten_image(features, targets):
+#     """Flatten the image."""
+#     img = features['image']
+#     flat = tf.cast(tf.reshape(img, [-1]), tf.int64)
+#     tgt = tf.expand_dims(targets, axis=0)
+#     flat_with_target = tf.concat([flat, tgt], axis=0)
+#     new_features = {}
+#     new_features['image'] = flat_with_target
+#     predict_image_weight = predict_image_train_weight if training else 0.0
+#     mask_begin = tf.ones_like(flat)
+#     mask_begin = tf.cast(mask_begin, tf.float32) * predict_image_weight
+#     mask_end = tf.cast(tf.ones_like(tgt), tf.float32)
+#     new_features['mask'] = tf.concat([mask_begin, mask_end], axis=0)
+#     return new_features, flat_with_target
+
+#   if training:
+#     dataset = dataset.map(augment)
+#   dataset = dataset.map(flatten_image)
+
+#   inp_shape, _ = shapes
+#   img_shape = inp_shape['image']
+#   flat_shape = img_shape[0] * img_shape[1] * img_shape[2] + 1
+#   new_shapes = {'image': (flat_shape,), 'mask': (flat_shape,)}
+#   return dataset, (new_shapes, (flat_shape,))
+
+
+# @gin.configurable(blacklist=['dataset', 'training', 'shapes'])
+# def concat_preprocess(dataset, training, shapes, pad_symbol=0):
+#   """Pre-processing function that concatenates input and target for LM."""
+#   del training
+
+#   def concat(features, targets):
+#     inp = features['inputs']
+#     pad = tf.expand_dims(tf.zeros_like(inp[0]) + pad_symbol, axis=0)
+#     concat = tf.concat([pad, inp, pad, targets], axis=0)
+#     # Note: we're updating existing features dictionary here, so make sure
+#     # it is not re-used in some other ways outside of this function.
+#     features['inputs'] = concat
+#     return features, concat
+
+#   dataset = dataset.map(concat)
+#   return dataset, shapes
+
+
+# @gin.configurable(blacklist=['dataset', 'training', 'shapes'])
+# def lm1b_preprocess(dataset, training, shapes,
+#                     max_target_length=-1, max_eval_target_length=-1):
+#   """Preprocessing for LM1B: filter out targets exceeding maximum length."""
+
+#   def target_right_length(_, target):
+#     return tf.less(tf.shape(target)[0], max_target_length + 1)
+
+#   def eval_target_right_length(_, target):
+#     return tf.less(tf.shape(target)[0], max_eval_target_length + 1)
+
+#   if max_target_length > 0 and training:
+#     dataset = dataset.filter(target_right_length)
+
+#   if max_eval_target_length > 0 and not training:
+#     dataset = dataset.filter(eval_target_right_length)
+
+#   return dataset, shapes
 
 
 # TODO(lukaszkaiser): find a single more abstract way of text pre-processing.
@@ -678,47 +680,47 @@ def wmt_concat_preprocess(dataset, training, shapes,
   return dataset, shapes
 
 
-@gin.configurable(blacklist=['hparams'])
-def bair_robot_pushing_hparams(
-    hparams=None, video_num_input_frames=1, video_num_target_frames=15
-    ):
-  if hparams is not None:
-    hparams.video_num_input_frames = video_num_input_frames
-    hparams.video_num_target_frames = video_num_target_frames
-  else:
-    return video_num_input_frames, video_num_target_frames
+# @gin.configurable(blacklist=['hparams'])
+# def bair_robot_pushing_hparams(
+#     hparams=None, video_num_input_frames=1, video_num_target_frames=15
+#     ):
+#   if hparams is not None:
+#     hparams.video_num_input_frames = video_num_input_frames
+#     hparams.video_num_target_frames = video_num_target_frames
+#   else:
+#     return video_num_input_frames, video_num_target_frames
 
 
-@gin.configurable(blacklist=['dataset', 'training', 'shapes'])
-def bair_robot_pushing_preprocess(dataset, training, shapes):
-  """Pre-processing function that concatenates input and target frames."""
-  del training, shapes
+# @gin.configurable(blacklist=['dataset', 'training', 'shapes'])
+# def bair_robot_pushing_preprocess(dataset, training, shapes):
+#   """Pre-processing function that concatenates input and target frames."""
+#   del training, shapes
 
-  def concat_and_add_mask(features, targets):
-    """Concatenate input and output frames to form a language modeling setup."""
-    inp = features['inputs']
-    concat = tf.concat([inp, targets], axis=0)
-    mask = tf.concat([tf.zeros_like(inp), tf.ones_like(targets)], axis=0)
-    concat = tf.reshape(concat, (-1,))
-    mask = tf.reshape(mask, (-1,))
-    concat = tf.cast(concat, tf.int32)
-    mask = tf.cast(mask, tf.float32)
-    features['inputs'] = features['targets'] = concat
-    features['mask'] = mask
-    return features, concat
+#   def concat_and_add_mask(features, targets):
+#     """Concatenate input and output frames to form a language modeling setup."""
+#     inp = features['inputs']
+#     concat = tf.concat([inp, targets], axis=0)
+#     mask = tf.concat([tf.zeros_like(inp), tf.ones_like(targets)], axis=0)
+#     concat = tf.reshape(concat, (-1,))
+#     mask = tf.reshape(mask, (-1,))
+#     concat = tf.cast(concat, tf.int32)
+#     mask = tf.cast(mask, tf.float32)
+#     features['inputs'] = features['targets'] = concat
+#     features['mask'] = mask
+#     return features, concat
 
-  dataset = dataset.map(concat_and_add_mask)
+  # dataset = dataset.map(concat_and_add_mask)
 
-  video_num_input_frames, video_num_target_frames = bair_robot_pushing_hparams()
-  video_num_frames = video_num_input_frames + video_num_target_frames
-  new_shape = (video_num_frames * 64 * 64 * 3,)
-  new_shapes = {
-      'inputs': new_shape,
-      'targets': new_shape,
-      'mask': new_shape,
-  }
+  # video_num_input_frames, video_num_target_frames = bair_robot_pushing_hparams()
+  # video_num_frames = video_num_input_frames + video_num_target_frames
+  # new_shape = (video_num_frames * 64 * 64 * 3,)
+  # new_shapes = {
+  #     'inputs': new_shape,
+  #     'targets': new_shape,
+  #     'mask': new_shape,
+  # }
 
-  return dataset, (new_shapes, new_shape)
+  # return dataset, (new_shapes, new_shape)
 
 
 @gin.configurable(whitelist=['preprocess_fun', 'shuffle_buffer_size'])
@@ -744,12 +746,13 @@ def shuffle_and_batch_data(dataset,
   # have incomplete batches during evaluation. This will be a problem when we
   # add an option to evaluate on the whole dataset, then we'll need to think of
   # a different solution.
-  dataset = dataset.repeat()
-  if training:
-    # Skip a random fraction at the beginning of the stream.  The skip is
-    # essential for synchronous highly-parallel training to avoid multiple
-    # replicas reading the same data in lock-step.
-    dataset = dataset.skip(random.randint(0, _MAX_SKIP_EXAMPLES))
+  # TODO(alex-fabbri) -- (un)comment depending on whether debugging or not
+  # dataset = dataset.repeat()
+  # if training:
+  #   # Skip a random fraction at the beginning of the stream.  The skip is
+  #   # essential for synchronous highly-parallel training to avoid multiple
+  #   # replicas reading the same data in lock-step.
+  #   dataset = dataset.skip(random.randint(0, _MAX_SKIP_EXAMPLES))
   shapes = {k: features_info[k].shape for k in features_info}
   shapes = (shapes, shapes[target_names[0]])
   dataset, shapes = preprocess_fun(dataset, training, shapes)
@@ -796,7 +799,7 @@ def encode_string_features(
         else:
           v = tf.cast(vocabulary.tokenize(v), tf.int64)
           v = tf.slice(v, [0], [tf.minimum(tf.shape(v)[0], tgt_truncate-1)])
-          #  TODO remove hard coding
+          #  TODO(alex-fabbri): remove hard coding
           v = tf.concat([v, [1]], 0)
       ret[k] = v
     return ret
@@ -810,14 +813,12 @@ def _train_and_eval_batches(dataset, data_dir, input_name, n_devices,
   (train_data, eval_data, features_info, keys) = train_and_eval_dataset(
       dataset, data_dir)
   input_names, target_names = keys[0], keys[1]
-  train_data = train_data.take(100)
-  eval_data = eval_data.take(100)
-  # train_data = tfds.as_numpy(train_data)
-  # eval_data = tfds.as_numpy(eval_data)
+  # TODO(alex-fabbri): when I need to debug -- uncomment this and remove .repeat()
+  train_data = train_data.take(1000)
+  eval_data = eval_data.take(1000)
   if custom_preprocess:
     sp_model = tf.gfile.GFile(DEFAULT_SPM_PATH, "rb").read()
     tokenizer = tf_text.SentencepieceTokenizer(model=sp_model)
-    # TODO change
     if train_dataset_size != -1:
       train_data = train_data.take(train_dataset_size)
     if valid_dataset_size != -1:
@@ -839,6 +840,5 @@ def _train_and_eval_batches(dataset, data_dir, input_name, n_devices,
   eval_batches = shuffle_and_batch_data(
       eval_data, input_names, target_names, features_info, training=False,
       n_devices=n_devices)
-  # train_batches = tfds.as_numpy(train_batches)
   input_name = input_name or input_names[0]
   return (train_batches, train_eval_batches, eval_batches, input_name)

@@ -47,6 +47,9 @@ from trax.math import random as jax_random
 from trax.shapes import ShapeDtype
 from trax.supervised import inputs as trax_inputs
 
+import tensorflow_text as tf_text
+DEFAULT_SPM_PATH = "gs://t5-data/vocabs/cc_all.32000/sentencepiece.model"
+
 
 # TODO(afrozm): Maybe flatten everything from OptState into TrainerState.
 TrainerState = collections.namedtuple('_TrainerState', [
@@ -304,9 +307,7 @@ class Trainer(object):
     start_time = time.time()
 
     for _ in range(n_steps):
-      import pdb;pdb.set_trace # check size before reshape_by_device
       batch = next(self._train_stream)
-      import pdb;pdb.set_trace()
       if self.n_devices > 1:  # TODO(lukaszkaiser): use everywhere if possible.
         batch = _reshape_by_device(batch, self.n_devices)
       self.train_step(batch)
@@ -711,8 +712,11 @@ def eval(output_dir,
   Returns:
     trax.TrainerState
   """
+  # TODO(alex-fabbri): return the model
+  # model_eval = model(mode="eval")
   model_predict = model(mode='predict')
-  return model_predict
+  # return model_predict
+  # TODO(alex-fabbri): return the trainer
   n_devices = num_devices()
   # TODO(lukaszkaiser): remove has_weights and id_to_mask (configure loss).
   trainer = trainer_class(model, loss_fn, optimizer, lr_schedule, inputs,
@@ -722,48 +726,32 @@ def eval(output_dir,
                           has_weights=has_weights,
                           nontrainable_param_map=nontrainable_param_map,
                           metrics=metrics, id_to_mask=id_to_mask)
-  import pdb;pdb.set_trace()
-  for i in range(100):
-    batch = next(trainer._eval_stream)
-    if trainer.n_devices > 1:  # TODO(lukaszkaiser): use everywhere if possible.
-        batch = _reshape_by_device(batch, trainer.n_devices)
-        # This line should give us logits?
-        output = trainer._model_predict_eval(batch[0])
-        output = trainer._model_predict_eval(batch)
-
-  #   for _ in range(n_steps):
-  #     batch = next(self._train_stream)
-  #     if self.n_devices > 1:  # TODO(lukaszkaiser): use everywhere if possible.
-  #       batch = _reshape_by_device(batch, self.n_devices)
-  #     self.train_step(batch)
-  print("HI")
-
-  # epoch_steps = [steps]  # Only training if eval_frequency is 0 or None
-  # if eval_frequency and eval_steps > 0:
-  #   epoch_steps = itertools.chain([1,  # first epoch only 1 step
-  #                                  eval_frequency - 1],
-  #                                 itertools.repeat(eval_frequency))
-  # trainer.log_step('Starting training using %d devices' % trainer.n_devices)
-  # trainer.print_n_weights()
-
-  # for epoch_steps in epochs(steps, trainer.step, epoch_steps):
-  #   trainer.train_epoch(epoch_steps, eval_steps)
-
-  #   # Update nontrainable parameters with new history
-  #   trainer.update_nontrainable_params()
-
-  #   # Bookkeeping we do at the first step
-  #   if trainer.step == 1:
-  #     # Save computation graph (single-device only for now)
-  #     if (save_graphs and math.backend_name() == 'jax'):
-  #       trainer.save_computation_graphs(save_backward_graph)
-
-  #     # Save Gin config
-  #     trainer.save_gin()
-
-  # trainer.log_step('Training done')
-  # return trainer.state
-
+  # return trainer, model_eval
+  return trainer, model_predict
+  # TODO(alex-fabbri): uncomment below for an example of getting output on train stream in 
+  # eager mode
+  # n_steps = 10
+  # for _ in range(n_steps):
+  #   batch = next(trainer._train_stream)
+  #   if trainer.n_devices > 1:  # TODO(lukaszkaiser): use everywhere if possible.
+  #     batch = _reshape_by_device(batch, trainer.n_devices)
+  #   import pdb;pdb.set_trace()
+  #   weights = trainer._opt_state[0][0]
+  #   logits = trainer._model_predict_eval(batch, weights=weights, state=trainer._model_state[0])
+  #                                       # rng=trainer._rngs[0])
+  #   try:
+  #     single_ex = logits[0][0].copy() # 100 x 32000
+  #   except:
+  #     single_ex = logits[0][0]
+  #   argmax_out = np.argmax(single_ex, axis=1)
+  #   sp_model = tf.io.gfile.GFile(DEFAULT_SPM_PATH, "rb").read()
+  #   tokenizer = tf_text.SentencepieceTokenizer(model=sp_model)
+  #   tokenizer.detokenize(argmax_out.copy())
+  #   # <tf.Tensor: id=640, shape=(), dtype=string,
+  #   #  numpy=b'former-military chiefs warn stepping stepping up special forces operations 
+  #   #  spoil the day\xe2\x80\x99 of fanatics  including british muslims,  northern i iraq .  
+  #   # chief marshal sir michael graydon called  air commodore andrew lambert, called for britain to ramp up. 
+  #   # up military options in iraq . spoke'>
 
 @gin.configurable
 def num_devices(value=None):
@@ -779,7 +767,9 @@ def _is_jit_init(value=True):
 @gin.configurable
 def _jit_update_fn(predict_fn, loss_fn, optimizer, n_devices, jit=True):
   """Returns a (JIT-compiled) function that computes updates for one step."""
+  # TODO(alex-fabbri): change
   model_and_loss = tl.Serial(predict_fn, loss_fn)
+  # model_and_loss = predict_fn
   # Gradients are always wrt. the first argument, so putting weights first.
   def model_and_loss_call(weights, batch, state, rng):
     res = model_and_loss(batch, weights=weights, state=state, rng=rng)
