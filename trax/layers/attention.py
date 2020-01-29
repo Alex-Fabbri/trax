@@ -36,7 +36,8 @@ from trax.math import numpy as np
 @base.layer()
 def ShiftRight(x, n_shifts=1, mode='train', **unused_kwargs):
   """Layer to shift the tensor to the right by padding on axis 1."""
-  if mode == 'predict' or x.shape == (1,1):
+  # if mode == 'predict' or x.shape == (1,1):
+  if mode == 'predict':
     # Do nothing in predict mode, as then the sequence length is 1.
     return x
 
@@ -100,6 +101,7 @@ class PositionalEncoding(base.Layer):
     else:
       assert self._mode == 'predict'
       assert self._dropout == 0
+      import pdb;pdb.set_trace()
       # State in this class is only used for fast inference. In that case,
       # the model is called with consecutive elements position-by-position.
       # This positional encoding layer needs to store the index of the current

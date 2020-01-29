@@ -228,52 +228,74 @@ def main(_):
   _jax_and_tf_configure_for_devices()
 
   output_dir = _output_dir_or_default()
-  # model = trainer_lib.eval(output_dir=output_dir)
-  # trainer = trainer_lib.eval(output_dir=output_dir)
-  trainer, cur_model = trainer_lib.eval(output_dir=output_dir)
-  # predict_signature_tgt = trax.shapes.ShapeDtype((1,100), dtype=np.int32)
-  # predict_signature_tgt = trax.shapes.ShapeDtype((1, 100), dtype=np.int32)
-  predict_signature_tgt = trax.shapes.ShapeDtype((1, 1), dtype=np.int32)
-  predict_signature_src = trax.shapes.ShapeDtype((1, 512), dtype=np.int32)
-  cur_model.init((predict_signature_src, predict_signature_tgt))
-  cur_model.init_from_file(os.path.join(output_dir, "model.pkl"),
-                             weights_only=True)
-  cur_input = np.array([[100]], dtype=np.int32)
-  zeros = np.zeros((1, 512), dtype=np.int32)
-  import pdb;pdb.set_trace()
-  batch = next(trainer._eval_stream)
-  # decode for 100 steps
-  src = batch[0]
-  tgt = batch[1]
-  # cur_model = trainer._model_predict_eval
-  # cur_model.init_from_file(os.path.join(output_dir, "model.pkl"),
-  #                            weights_only=True)
 
-  # out = cur_model((batch[0], batch[1]))
+  # get tokenizer
   sp_model = tf.io.gfile.GFile(DEFAULT_SPM_PATH, "rb").read()
   tokenizer = tf_text.SentencepieceTokenizer(model=sp_model)
-  cur_input = np.array([[0]]) # bos 
-  # out = cur_mode((batch[0], cur_input))
-  output = ""
+
+  # prepare model(s)
+  trainer, model_predict, model_eval = trainer_lib.eval(output_dir=output_dir)
+
+  jit_model_infer = trax.layers.base._accelerate(
+    model_predict._forward_internal, trax.math.device_count())
+  # Set up the initial state for sampling.
+  infer_state = model_predict.new_weights_and_state(
+    (trax.supervised.trainer_lib.ShapeDtype((1,512), dtype=np.int32), trax.supervised.trainer_lib.ShapeDtype((1,1), dtype=np.int32)))[1]
+  infer_state = trainer._for_n_devices(infer_state)
+  model_weights = trainer._opt_state[0][0]
+  cur_state = infer_state
+
+  # predict_signature_src = trax.shapes.ShapeDtype((1, 512), dtype=np.int32)
+  # predict_signature_tgt = trax.shapes.ShapeDtype((1, 1), dtype=np.int32)
+  # model_predict.init((predict_signature_src, predict_signature_tgt))
+  # model_predict.init_from_file(os.path.join(output_dir, "model.pkl"),
+  #                            weights_only=True)
+  eval_signature_src = trax.shapes.ShapeDtype((1, 512), dtype=np.int32)
+  eval_signature_tgt = trax.shapes.ShapeDtype((1, 100), dtype=np.int32)
+  model_eval.init((eval_signature_src, eval_signature_tgt))
+  model_eval.init_from_file(os.path.join(output_dir, "model.pkl"),
+                             weights_only=True)
+  # sample input
+  batch = next(trainer._eval_stream)
+  src = batch[0]
+  cur_input_predict = np.array([[0]]) # bos 
+  cur_input_eval = np.array([[0]]) # bos 
+  import pdb;pdb.set_trace()
+  output_predict = ""
+  output_eval = ""
   for i in range(25):
-    out = cur_model((src, cur_input))
-    # out = cur_model((src, cur_input), state=0)
-    # cur_pred = np.argmax(out[0].copy()).item()
-    last_index = np.argmax(out[0][0], axis=1).copy()[-1]
-    cur_tok = tokenizer.detokenize([last_index]).numpy().decode()
-    output += " " + cur_tok
-    # cur_tok = tokenizer.id_to_string(cur_pred).numpy().decode()
-    # print(cur_tok)
-    # print(cur_str)
-    # cur_input = indices
-    cur_input = np.array([[last_index]]) 
-    # if i == 0:
-    #   cur_input = np.array([[last_index]]) 
-    # else:
-    #   # cur_input = cur_input + np.array([list(cur_input[0].copy()) + [last_index]]) 
-    #   cur_input = np.array([list(cur_input[0].copy()) + [last_index]])
+    # run model
+    # out_pred = model_predict((src, cur_input_predict), state=i)
+    # out_pred = model_predict((src, cur_input_predict))
+    out_pred, cur_state = jit_model_infer(
+        (src, cur_input_predict),
+        weights=model_weights,
+        state=cur_state,
+        rng=trainer._rngs[0])
+    out_eval = model_eval((src, cur_input_eval), rng=trainer._rngs[0])
+
+    # get argmax prediction and detokenize
+    last_index_pred = np.argmax(out_pred[0][0], axis=1).copy()[-1]
+    # cur_tok_pred = tokenizer.detokenize([last_index_pred]).numpy().decode()
+    cur_tok_pred = str(last_index_pred)
+    output_predict += " " + cur_tok_pred
+    last_index_eval = np.argmax(out_eval[0][0], axis=1).copy()[-1]
+    # cur_tok_eval = tokenizer.detokenize([last_index_eval]).numpy().decode()
+    cur_tok_eval = str(last_index_eval)
+    output_eval += " " + cur_tok_eval
+
+    print("output predict: ", output_predict)
+    print("output eval: ", output_eval)
+    # set input for the next iteration
+    cur_input_predict = np.array([[last_index_pred]]) 
+    if i == 0:
+      cur_input_eval = np.array([[last_index_eval]]) 
+    else:
+      # cur_input = cur_input + np.array([list(cur_input[0].copy()) + [last_index]]) 
+      cur_input_eval = np.array([list(cur_input_eval[0].copy()) + [last_index_eval]])
     # # cur_input = np.reshape(indices, (1, indices.shape[0]))
-  print(output)
+  print("output predict: {output_predict}")
+  print("output eval: {output_eval}")
   exit()
 
 # indices = np.argmax(out[0][0], axis=1)

@@ -713,7 +713,7 @@ def eval(output_dir,
     trax.TrainerState
   """
   # TODO(alex-fabbri): return the model
-  # model_eval = model(mode="eval")
+  model_eval = model(mode="eval")
   model_predict = model(mode='predict')
   # return model_predict
   # TODO(alex-fabbri): return the trainer
@@ -727,7 +727,7 @@ def eval(output_dir,
                           nontrainable_param_map=nontrainable_param_map,
                           metrics=metrics, id_to_mask=id_to_mask)
   # return trainer, model_eval
-  return trainer, model_predict
+  return trainer, model_predict, model_eval
   # TODO(alex-fabbri): uncomment below for an example of getting output on train stream in 
   # eager mode
   # n_steps = 10
