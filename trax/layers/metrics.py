@@ -73,7 +73,6 @@ def CrossEntropyLoss(id_to_mask=None, has_weights=False):
 def RougeFunc(inputs, **unused_kwargs):
   """Returns a layer to compute weighted mean over all values in the input."""
   scorer = rouge_scorer.RougeScorer(['rougeL'], use_stemmer=True)
-  import pdb;pdb.set_trace()
   logits, targets = inputs
   predictions = np.argmax(logits, axis=1)
   sp_model = tf.io.gfile.GFile(DEFAULT_SPM_PATH, "rb").read()

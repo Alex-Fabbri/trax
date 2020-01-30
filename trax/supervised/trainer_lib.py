@@ -182,6 +182,8 @@ class Trainer(object):
     # Jit model_predict and update so they're fast.
     self._jit_eval = _jit_predict_fn(
         model_predict_eval, metrics_in_parallel, self._n_devices)
+    self._jit_output = _jit_output_fn(
+        model_predict_eval, metrics_in_parallel, self._n_devices)
     self._jit_update_fn = _jit_update_fn(
         model_train, loss_fn, opt, self._n_devices)
 
@@ -391,8 +393,9 @@ class Trainer(object):
       count += 1
       rng, subrng = jax_random.split(rng)
       metric_values, _ = self._jit_eval(inp, weights, state, subrng)
+      output = self._jit_eval(inp, weights, state, subrng)
       import pdb;pdb.set_trace()
-      rouge_value = trax.layers.metrics.RougeFunc(inp)
+      rouge_value = trax.layers.metrics.RougeFunc(output)
       try:
         metric_values = list(metric_values)
       except TypeError:
@@ -449,7 +452,8 @@ class Trainer(object):
     step, history, model_state = self._step, self._history, self._model_state
     output_dir = self._output_dir
 
-    weights_file = os.path.join(output_dir, 'model.pkl')
+    # weights_file = os.path.join(output_dir, 'model.pkl')
+    weights_file = output_dir + '/model.pkl'
 
     # This dict will be stored as the model.
     trainer_state_dict = make_trainer_state_dict(step,
@@ -459,7 +463,8 @@ class Trainer(object):
     self._save_state_dict(trainer_state_dict, weights_file)
 
     if keep:
-      weights_file = os.path.join(output_dir, 'model_{}.pkl'.format(step))
+      # weights_file = os.path.join(output_dir, 'model_{}.pkl'.format(step))
+      weights_file = output_dir + '/model_{}.pkl'.format(step)
       self._save_state_dict(trainer_state_dict, weights_file)
 
   def save_computation_graphs(self, save_backward_graph):
@@ -822,6 +827,14 @@ def _jit_predict_fn(model_predict, metric_fn, n_devices, jit=True):
 
   return tl.jit_forward(model_predict, n_devices)
 
+@gin.configurable
+def _jit_output_fn(model_predict, metric_fn, n_devices, jit=True):
+  """Returns a JIT-compiled predict function (unless jit=False)."""
+  if not jit:
+    return model_predict
+
+  return tl.jit_forward(model_predict, n_devices)
+
 
 @gin.configurable
 def _jit_compute_loss_fn(predict_fn, loss_fn, n_devices, jit=True):
@@ -945,7 +958,8 @@ def trainer_state_from_dict(trainer_state_dict):
 def load_trainer_state(output_dir, weights_file=None):
   """Returns a TrainerState instance loaded from the given `output_dir`."""
   if weights_file is None:
-    weights_file = os.path.join(output_dir, 'model.pkl')
+    # weights_file = os.path.join(output_dir, 'model.pkl')
+    weights_file = output_dir + '/model.pkl'
     if not tf.io.gfile.exists(weights_file):
       return TrainerState(step=None, opt_state=None,
                           history=trax_history.History(), model_state=None)
