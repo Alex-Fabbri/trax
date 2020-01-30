@@ -306,6 +306,8 @@ class Trainer(object):
     print()  # Add visual separator in logs for start of training epoch.
     start_time = time.time()
 
+    import pdb;pdb.set_trace()
+    #return self._should_save_checkpoints and self._step in self._checkpoints_at
     for _ in range(n_steps):
       batch = next(self._train_stream)
       if self.n_devices > 1:  # TODO(lukaszkaiser): use everywhere if possible.

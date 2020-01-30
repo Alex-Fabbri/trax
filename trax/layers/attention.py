@@ -101,7 +101,6 @@ class PositionalEncoding(base.Layer):
     else:
       assert self._mode == 'predict'
       assert self._dropout == 0
-      import pdb;pdb.set_trace()
       # State in this class is only used for fast inference. In that case,
       # the model is called with consecutive elements position-by-position.
       # This positional encoding layer needs to store the index of the current

@@ -817,7 +817,7 @@ def _train_and_eval_batches(dataset, data_dir, input_name, n_devices,
   train_data = train_data.take(1000)
   eval_data = eval_data.take(1000)
   if custom_preprocess:
-    sp_model = tf.gfile.GFile(DEFAULT_SPM_PATH, "rb").read()
+    sp_model = tf.io.gfile.GFile(DEFAULT_SPM_PATH, "rb").read()
     tokenizer = tf_text.SentencepieceTokenizer(model=sp_model)
     if train_dataset_size != -1:
       train_data = train_data.take(train_dataset_size)

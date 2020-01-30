@@ -50,8 +50,10 @@ from trax.math import numpy as np
 from trax.math import random as jax_random
 from trax.shapes import ShapeDtype
 from trax.supervised import inputs as trax_inputs
+from trax.search import transformer_greedy, transformer_batch
 
 DEFAULT_SPM_PATH = "gs://t5-data/vocabs/cc_all.32000/sentencepiece.model"
+import sentencepiece as sp
 import tensorflow_text as tf_text
 
 FLAGS = flags.FLAGS
@@ -197,7 +199,10 @@ def tf_init_tpu(worker='', protocol=None):
 def prep_data(dataset):
   # TODO return to this
   sp_model = tf.io.gfile.GFile(DEFAULT_SPM_PATH, "rb").read()
+  spm = sp.SentencePieceProcessor()
+  spm = spm.load_from_serialized_proto(sp_model)
   tokenizer = tf_text.SentencepieceTokenizer(model=sp_model)
+  # spm.decode_ids([20,13,4,5,5])
 
   final_data = []
   for count, ex in enumerate(dataset):
@@ -207,6 +212,7 @@ def prep_data(dataset):
       print(count)
     src = ex['article']
     tgt = ex['highlights']
+    # spm.EncodeAsIds("This is a string")
     tmp = tf.cast(tokenizer.tokenize(src), tf.int64)
     tmp = tf.slice(tmp, [0], [tf.minimum(tf.shape(tmp)[0], 512-1)])
     tmp = tf.concat([tmp, [1]], 0)
@@ -234,17 +240,16 @@ def main(_):
   tokenizer = tf_text.SentencepieceTokenizer(model=sp_model)
 
   # prepare model(s)
-  trainer, model_predict, model_eval = trainer_lib.eval(output_dir=output_dir)
+  trainer, _, model_eval = trainer_lib.eval(output_dir=output_dir)
 
-  jit_model_infer = trax.layers.base._accelerate(
-    model_predict._forward_internal, trax.math.device_count())
-  # Set up the initial state for sampling.
-  infer_state = model_predict.new_weights_and_state(
-    (trax.supervised.trainer_lib.ShapeDtype((1,512), dtype=np.int32), trax.supervised.trainer_lib.ShapeDtype((1,1), dtype=np.int32)))[1]
-  infer_state = trainer._for_n_devices(infer_state)
-  model_weights = trainer._opt_state[0][0]
-  cur_state = infer_state
-
+  # jit_model_infer = trax.layers.base._accelerate(
+  #   model_predict._forward_internal, trax.math.device_count())
+  # # Set up the initial state for sampling.
+  # infer_state = model_predict.new_weights_and_state(
+  #   (trax.supervised.trainer_lib.ShapeDtype((1,512), dtype=np.int32), trax.supervised.trainer_lib.ShapeDtype((1,1), dtype=np.int32)))[1]
+  # infer_state = trainer._for_n_devices(infer_state)
+  # model_weights = trainer._opt_state[0][0]
+  # cur_state = infer_state
   # predict_signature_src = trax.shapes.ShapeDtype((1, 512), dtype=np.int32)
   # predict_signature_tgt = trax.shapes.ShapeDtype((1, 1), dtype=np.int32)
   # model_predict.init((predict_signature_src, predict_signature_tgt))
@@ -257,94 +262,99 @@ def main(_):
                              weights_only=True)
   # sample input
   batch = next(trainer._eval_stream)
-  src = batch[0]
-  cur_input_predict = np.array([[0]]) # bos 
-  cur_input_eval = np.array([[0]]) # bos 
-  import pdb;pdb.set_trace()
-  output_predict = ""
-  output_eval = ""
-  for i in range(25):
-    # run model
-    # out_pred = model_predict((src, cur_input_predict), state=i)
-    # out_pred = model_predict((src, cur_input_predict))
-    out_pred, cur_state = jit_model_infer(
-        (src, cur_input_predict),
-        weights=model_weights,
-        state=cur_state,
-        rng=trainer._rngs[0])
-    out_eval = model_eval((src, cur_input_eval), rng=trainer._rngs[0])
+  # transformer_greedy(model_eval, batch, max_output_length=100)
+  transformer_batch(model_eval, batch, size=5, max_output_length=100)
+#   src = batch[0]
+#   # cur_input_predict = np.array([[0]]) # bos 
+#   cur_input_eval = np.array([[0]]) # bos 
+#   import pdb;pdb.set_trace()
+#   output_predict = ""
+#   output_eval = ""
+#   for i in range(25):
+#     # run model
+#     # out_pred = model_predict((src, cur_input_predict), state=i)
+#     # # out_pred = model_predict((src, cur_input_predict))
+#     # out_pred, cur_state = jit_model_infer(
+#     #     (src, cur_input_predict),
+#     #     weights=model_weights,
+#     #     state=cur_state,
+#     #     rng=trainer._rngs[0])
+#     out_eval = model_eval((src, cur_input_eval), rng=trainer._rngs[0])
 
-    # get argmax prediction and detokenize
-    last_index_pred = np.argmax(out_pred[0][0], axis=1).copy()[-1]
-    # cur_tok_pred = tokenizer.detokenize([last_index_pred]).numpy().decode()
-    cur_tok_pred = str(last_index_pred)
-    output_predict += " " + cur_tok_pred
-    last_index_eval = np.argmax(out_eval[0][0], axis=1).copy()[-1]
-    # cur_tok_eval = tokenizer.detokenize([last_index_eval]).numpy().decode()
-    cur_tok_eval = str(last_index_eval)
-    output_eval += " " + cur_tok_eval
+#     # get argmax prediction and detokenize
+#     # last_index_pred = np.argmax(out_pred[0][0], axis=1).copy()[-1]
+#     cur_tok_pred = tokenizer.detokenize([last_index_pred]).numpy().decode()
+#     # cur_tok_pred = str(last_index_pred)
+#     # output_predict += " " + cur_tok_pred
+#     last_index_eval = np.argmax(out_eval[0][0], axis=1).copy()[-1]
+#     cur_tok_eval = tokenizer.detokenize([last_index_eval]).numpy().decode()
+#     # cur_tok_eval = str(last_index_eval)
+#     # output_eval += " " + cur_tok_eval
 
-    print("output predict: ", output_predict)
-    print("output eval: ", output_eval)
-    # set input for the next iteration
-    cur_input_predict = np.array([[last_index_pred]]) 
-    if i == 0:
-      cur_input_eval = np.array([[last_index_eval]]) 
-    else:
-      # cur_input = cur_input + np.array([list(cur_input[0].copy()) + [last_index]]) 
-      cur_input_eval = np.array([list(cur_input_eval[0].copy()) + [last_index_eval]])
-    # # cur_input = np.reshape(indices, (1, indices.shape[0]))
-  print("output predict: {output_predict}")
-  print("output eval: {output_eval}")
-  exit()
+#     # print("output predict: ", output_predict)
+#     print("output eval: ", output_eval)
+#     # set input for the next iteration
+#     # cur_input_predict = np.array([[last_index_pred]]) 
+#     if i == 0:
+#       cur_input_eval = np.array([[last_index_eval]]) 
+#     else:
+#       # cur_input = cur_input + np.array([list(cur_input[0].copy()) + [last_index]]) 
+#       cur_input_eval = np.array([list(cur_input_eval[0].copy()) + [last_index_eval]])
+#     # # cur_input = np.reshape(indices, (1, indices.shape[0]))
+#   print("output predict: {output_predict}")
+#   print("output eval: {output_eval}")
+#   exit()
 
-# indices = np.argmax(out[0][0], axis=1)
-# tokenizer.detokenize(indices.copy())
-# <tf.Tensor: id=640, shape=(), dtype=string, numpy=b"insured rate dropped dropped from 20.3 percent 
-# to 13.2 percent between theobtober   hbamacare  enrollmentendforcess .  barobama campaigned in 
-# the promise of a medical insurance law 'that will cover every american' and hhs secretary saidd 
-# that   be toa  subsidies.reout avenue a number of avenues' under house    for the  premium">
+# # indices = np.argmax(out[0][0], axis=1)
+# # tokenizer.detokenize(indices.copy())
+# # <tf.Tensor: id=640, shape=(), dtype=string, numpy=b"insured rate dropped dropped from 20.3 percent 
+# # to 13.2 percent between theobtober   hbamacare  enrollmentendforcess .  barobama campaigned in 
+# # the promise of a medical insurance law 'that will cover every american' and hhs secretary saidd 
+# # that   be toa  subsidies.reout avenue a number of avenues' under house    for the  premium">
 
 
-  # dataset = tfds.load(name="cnn_dailymail", split="test")
-  # np_dataset = tfds.as_numpy(dataset)
-  # dataset_final = prep_data(np_dataset)
-  # max_target_len = 100
+#   # dataset = tfds.load(name="cnn_dailymail", split="test")
+#   # np_dataset = tfds.as_numpy(dataset)
+#   # dataset_final = prep_data(np_dataset)
+#   # max_target_len = 100
 
-  # output = ""
+#   # output = ""
   
-  # for data in dataset_final:
-  #   src = data[0]
-  #   tgt_str = data[1]
-  #   cur_input = np.array([[100]])
-  #   for i in range(max_target_len):
-  #     print(i)
-  #     # print("about to run")
-  #     out = model((src, cur_input))
-  #     # take argmax, use as input to the next
-  #     # TODO check why we need to have [[0]] and not [0]
-  #     copy_ar = out[0].copy()
-  #     argmax_ = np.argmax(copy_ar)
-  #     # cur_tok = tokenizer.id_to_string(argmax_).numpy().decode()
-  #     cur_tok = tokenizer.id_to_string(argmax_.copy().item()).numpy().decode()
-  #     print(cur_tok)
-  #     output += cur_tok + " "
-  #     cur_input = np.array([[argmax_]])
-  #   print(output)
-  #   exit()
+#   # for data in dataset_final:
+#   #   src = data[0]
+#   #   tgt_str = data[1]
+#   #   cur_input = np.array([[100]])
+#   #   for i in range(max_target_len):
+#   #     print(i)
+#   #     # print("about to run")
+#   #     out = model((src, cur_input))
+#   #     # take argmax, use as input to the next
+#   #     # TODO check why we need to have [[0]] and not [0]
+#   #     copy_ar = out[0].copy()
+#   #     argmax_ = np.argmax(copy_ar)
+#   #     # cur_tok = tokenizer.id_to_string(argmax_).numpy().decode()
+#   #     cur_tok = tokenizer.id_to_string(argmax_.copy().item()).numpy().decode()
+#   #     print(cur_tok)
+#   #     output += cur_tok + " "
+#   #     cur_input = np.array([[argmax_]])
+#   #   print(output)
+#   #   exit()
 
-  #   # print(data)
+#   #   # print(data)
 
 
-  # # if FLAGS.use_tpu and math.backend_name() == 'tf':
-  # #   _train_using_tf(output_dir)
-  # # else:
+#   # # if FLAGS.use_tpu and math.backend_name() == 'tf':
+#   # #   _train_using_tf(output_dir)
+#   # # else:
 
-  # cur_input = np.array([[0]])
-  # cur_input_src = np.array([[0, 10]])
-  # test = (cur_input_src, cur_input)
-  # out = model(test)
-  # print(out[1].shape)
+#   # cur_input = np.array([[0]])
+#   # cur_input_src = np.array([[0, 10]])
+#   # test = (cur_input_src, cur_input)
+#   # out = model(test)
+#   # print(out[1].shape)
 
 if __name__ == '__main__':
+  # print(tf.executing_eagerly())
+  # exit()
+
   app.run(main)
