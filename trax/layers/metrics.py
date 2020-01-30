@@ -48,7 +48,11 @@ from trax.layers import base
 from trax.layers import combinators as cb
 from trax.layers import core
 from trax.math import numpy as np
+from rouge_score import rouge_scorer
+import tensorflow.compat.v2 as tf
 
+DEFAULT_SPM_PATH = "gs://t5-data/vocabs/cc_all.32000/sentencepiece.model"
+import tensorflow_text as tf_text
 
 # pylint: disable=no-value-for-parameter
 def L2Loss(id_to_mask=None, has_weights=False):
@@ -65,10 +69,23 @@ def CrossEntropyLoss(id_to_mask=None, has_weights=False):
   """Computes weighted masked mean of prediction-target cross entropies."""
   return _WeightedMaskedMean(_CrossEntropy(), id_to_mask, has_weights)
 
-# TODO finish this 
-# def RougeScore(id_to_mask=None, has_weights=False):
-#   """Computes weighted masked mean of prediction-target cross entropies."""
-#   return _WeightedMaskedMean(some_rouge_function, id_to_mask, has_weights)
+
+def RougeFunc(inputs, **unused_kwargs):
+  """Returns a layer to compute weighted mean over all values in the input."""
+  scorer = rouge_scorer.RougeScorer(['rougeL'], use_stemmer=True)
+  import pdb;pdb.set_trace()
+  logits, targets = inputs
+  predictions = np.argmax(logits, axis=1)
+  sp_model = tf.io.gfile.GFile(DEFAULT_SPM_PATH, "rb").read()
+  tokenizer = tf_text.SentencepieceTokenizer(model=sp_model)
+  scores = []
+  for i in range(predictions.shape[0]):
+    cur_predictions = predictions[i, :]
+    cur_gold = targets[i, :]
+    cur_predictions_str = tokenizer.detokenize(cur_predictions)
+    cur_gold_str = tokenizer.detokenize(cur_gold)
+    scores.append(scorer.score(cur_gold_str, cur_predictions_str))
+  return sum(scores)/float(len(scores))
 
 
 def SumOfWeights(id_to_mask=None, has_weights=False):

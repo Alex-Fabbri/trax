@@ -96,7 +96,6 @@ class Trainer(object):
 
     self._has_weights = has_weights
     self._id_to_mask = id_to_mask
-    # TODO(alex-fabbri): modify metrics here to include a ROUGE-based metric
     self._metrics_dict = metrics if metrics is not None else _DEFAULT_METRICS
     loss_fn = loss_fn(has_weights=has_weights, id_to_mask=id_to_mask)
     # Inputs is either an Inputs instance or a function that returns it.
@@ -392,12 +391,15 @@ class Trainer(object):
       count += 1
       rng, subrng = jax_random.split(rng)
       metric_values, _ = self._jit_eval(inp, weights, state, subrng)
+      import pdb;pdb.set_trace()
+      rouge_value = trax.layers.metrics.RougeFunc(inp)
       try:
         metric_values = list(metric_values)
       except TypeError:
         metric_values = [float(metric_values)]
       for m, v in zip(self._metrics, metric_values):
         metrics[m] += v
+      metrics['rouge_L'] = rouge_value
     return {m: v / count for (m, v) in six.iteritems(metrics)}, state
 
   def update_model_state(self, key, value):

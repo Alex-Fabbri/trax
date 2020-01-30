@@ -33,10 +33,8 @@ import tensorflow as tf
 import tensorflow_datasets as tfds
 from trax import math
 from trax.math import numpy as np
-# import sentencepiece as sentencepiece_processor
+# import sentencepiece as spm
 import tensorflow_text as tf_text
-
-
 DEFAULT_SPM_PATH = "gs://t5-data/vocabs/cc_all.32000/sentencepiece.model"
 
 class Inputs(object):
@@ -794,10 +792,12 @@ def encode_string_features(
           ret["%s_plaintext" % k] = v
         if k == keys[0]:
           v = tf.cast(vocabulary.tokenize(v), tf.int64)
+          # v = tf.cast(vocabulary.EncodeAsIds(v.numpy()), tf.int64)
           v = tf.slice(v, [0], [tf.minimum(tf.shape(v)[0], src_truncate-1)])
           v = tf.concat([v, [1]], 0)
         else:
           v = tf.cast(vocabulary.tokenize(v), tf.int64)
+          # v = tf.cast(vocabulary.EncodeAsIds(v.numpy()), tf.int64)
           v = tf.slice(v, [0], [tf.minimum(tf.shape(v)[0], tgt_truncate-1)])
           #  TODO(alex-fabbri): remove hard coding
           v = tf.concat([v, [1]], 0)
@@ -819,6 +819,8 @@ def _train_and_eval_batches(dataset, data_dir, input_name, n_devices,
   if custom_preprocess:
     sp_model = tf.io.gfile.GFile(DEFAULT_SPM_PATH, "rb").read()
     tokenizer = tf_text.SentencepieceTokenizer(model=sp_model)
+    # tokenizer = spm.SentencePieceProcessor()
+    # tokenizer.load_from_serialized_proto(sp_model)
     if train_dataset_size != -1:
       train_data = train_data.take(train_dataset_size)
     if valid_dataset_size != -1:
