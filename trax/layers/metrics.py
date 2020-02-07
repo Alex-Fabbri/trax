@@ -70,6 +70,24 @@ def CrossEntropyLoss(id_to_mask=None, has_weights=False):
   return _WeightedMaskedMean(_CrossEntropy(), id_to_mask, has_weights)
 
 
+def RougeFakeLoss(id_to_mask=None, has_weights=False):
+  return _RougeHelper(_CrossEntropy(), id_to_mask, has_weights)
+
+
+def _RougeHelper(metric_layer, id_to_mask, has_weights):
+  """Computes weighted masked mean of metric_layer(predictions, targets)."""
+  multiply_by_weights = cb.Multiply() if has_weights else []
+  # Create a layer with 2 or 3 inputs:
+  #   - predictions targets (weights)
+  # that applies the specified metric to a batch and gathers the results into
+  # a single scalar.
+  return cb.Serial(
+      cb.Select([0, 1, 1, 1]),
+      cb.Parallel(metric_layer, _ElementMask(id_to_mask=id_to_mask), []),
+      cb.Parallel([], multiply_by_weights, []),  # Stack now: metric_values weights
+      cb.Parallel(_WeightedMean(), [])
+  )
+
 def RougeFunc(inputs, **unused_kwargs):
   """Returns a layer to compute weighted mean over all values in the input."""
   scorer = rouge_scorer.RougeScorer(['rougeL'], use_stemmer=True)

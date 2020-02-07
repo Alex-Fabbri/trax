@@ -814,8 +814,8 @@ def _train_and_eval_batches(dataset, data_dir, input_name, n_devices,
       dataset, data_dir)
   input_names, target_names = keys[0], keys[1]
   # TODO(alex-fabbri): when I need to debug -- uncomment this and remove .repeat()
-  train_data = train_data.take(1000)
-  eval_data = eval_data.take(1000)
+  # train_data = train_data.take(1000)
+  # eval_data = eval_data.take(1000)
   if custom_preprocess:
     sp_model = tf.io.gfile.GFile(DEFAULT_SPM_PATH, "rb").read()
     tokenizer = tf_text.SentencepieceTokenizer(model=sp_model)

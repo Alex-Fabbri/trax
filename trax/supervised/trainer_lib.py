@@ -46,6 +46,7 @@ from trax.math import numpy as np
 from trax.math import random as jax_random
 from trax.shapes import ShapeDtype
 from trax.supervised import inputs as trax_inputs
+import trax
 
 import tensorflow_text as tf_text
 DEFAULT_SPM_PATH = "gs://t5-data/vocabs/cc_all.32000/sentencepiece.model"
@@ -72,6 +73,7 @@ _DEFAULT_METRICS = {
     'accuracy': tl.AccuracyScalar,
     'neg_log_perplexity': tl.CrossEntropyLoss,
     'weights_per_batch_per_core': tl.SumOfWeights,
+    'fake_rouge': tl.RougeFakeLoss
 }
 
 
@@ -307,7 +309,6 @@ class Trainer(object):
     print()  # Add visual separator in logs for start of training epoch.
     start_time = time.time()
 
-    import pdb;pdb.set_trace()
     #return self._should_save_checkpoints and self._step in self._checkpoints_at
     for _ in range(n_steps):
       batch = next(self._train_stream)
@@ -392,18 +393,20 @@ class Trainer(object):
     for inp in inputs_stream:
       count += 1
       rng, subrng = jax_random.split(rng)
-      metric_values, _ = self._jit_eval(inp, weights, state, subrng)
-      output = self._jit_eval(inp, weights, state, subrng)
       import pdb;pdb.set_trace()
+      metric_values, _ = self._jit_eval(inp, weights, state, subrng)
+      output = self._jit_output(inp, weights, state, subrng)
       rouge_value = trax.layers.metrics.RougeFunc(output)
       try:
         metric_values = list(metric_values)
       except TypeError:
         metric_values = [float(metric_values)]
       for m, v in zip(self._metrics, metric_values):
+        if 'fake' in m:
+          continue
         metrics[m] += v
       metrics['rouge_L'] = rouge_value
-    return {m: v / count for (m, v) in six.iteritems(metrics)}, state
+    return {m: v / count for (m, v) in six.iteritems(metrics) if 'fake' not in m}, state
 
   def update_model_state(self, key, value):
     """Updates model state based on nontrainable_params."""
@@ -744,7 +747,6 @@ def eval(output_dir,
   #   batch = next(trainer._train_stream)
   #   if trainer.n_devices > 1:  # TODO(lukaszkaiser): use everywhere if possible.
   #     batch = _reshape_by_device(batch, trainer.n_devices)
-  #   import pdb;pdb.set_trace()
   #   weights = trainer._opt_state[0][0]
   #   logits = trainer._model_predict_eval(batch, weights=weights, state=trainer._model_state[0])
   #                                       # rng=trainer._rngs[0])
@@ -776,9 +778,7 @@ def _is_jit_init(value=True):
 @gin.configurable
 def _jit_update_fn(predict_fn, loss_fn, optimizer, n_devices, jit=True):
   """Returns a (JIT-compiled) function that computes updates for one step."""
-  # TODO(alex-fabbri): change
   model_and_loss = tl.Serial(predict_fn, loss_fn)
-  # model_and_loss = predict_fn
   # Gradients are always wrt. the first argument, so putting weights first.
   def model_and_loss_call(weights, batch, state, rng):
     res = model_and_loss(batch, weights=weights, state=state, rng=rng)
@@ -830,6 +830,8 @@ def _jit_predict_fn(model_predict, metric_fn, n_devices, jit=True):
 @gin.configurable
 def _jit_output_fn(model_predict, metric_fn, n_devices, jit=True):
   """Returns a JIT-compiled predict function (unless jit=False)."""
+  model_predict = model_predict._forward_internal  # pylint: disable=protected-access
+  return model_predict
   if not jit:
     return model_predict
 

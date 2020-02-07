@@ -23,7 +23,6 @@ batch_fn.batch_size_per_device = 128
 batch_fn.eval_batch_size = 64
 #batch_fn.max_eval_length = 1024
 batch_fn.max_eval_length = 512
-# TODO(alex-fabbri):
 #batch_fn.buckets_include_inputs_in_length=True
 
 # Parameters for inputs:
@@ -32,7 +31,7 @@ inputs.data_dir = None
 inputs.dataset_name = 'cnn_dailymail'
 inputs.custom_preprocess = True
 inputs.src_truncate = 512
-inputs.tgt_truncate = 100
+inputs.tgt_truncate = 256
 
 # Parameters for MultifactorSchedule:
 # ==============================================================================
